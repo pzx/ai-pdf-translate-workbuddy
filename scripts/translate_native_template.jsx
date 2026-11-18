@@ -29,6 +29,24 @@ var MAP = {
     "jellyfish": "m\\u00e9duse"
 };
 
+/* 每个原文对象的墨迹宽度上限（pt）。必须先从源文件几何实测：
+   硬容器（胶囊/按钮）= 容器宽 - 两侧边距；开放区域 = 词带内到邻近插画的对称可用宽。
+   译文墨迹超过上限必须自动缩字号，绝不允许溢出容器（用户硬性要求）。
+   缺 key 时该对象不收缩（仅用于确认过不会溢出的对象）。 */
+var MAXW = {
+    "Letters":   95,
+    "apple":     171.6,
+    "dog":       163.4,
+    "candy":     173.4,
+    "balloon":   179.6,
+    "egg":       114.6,
+    "fish":      175,
+    "giraffe":   179.6,
+    "house":     93.6,
+    "ice":       174.8,
+    "jellyfish": 106.8
+};
+
 var lines = [];
 function log(s) { lines.push(s); }
 
@@ -42,7 +60,8 @@ function writeLog() {
 
 /* 替换单个 textFrame：恢复原字体/字号/颜色/对齐，并用 visibleBounds 中心回补，
    使新文字可见边界中心与原文字重合（误差目标 <=1pt），长译文不偏移。
-   ⚠️ 政策：不缩小字号适配长译文；溢出/遮挡要记录，不做静默版式妥协。 */
+   ⚠️ 防溢出政策：译文墨迹宽超过 MAXW[key] 必须按比例缩字号（迭代两轮收敛，
+   每轮以当前字号为基数），缩完再水平回中。容器几何测量方法见 MAXW 注释。 */
 function replaceInDoc(doc) {
     var count = 0;
     for (var i = 0; i < doc.textFrames.length; i++) {
@@ -79,6 +98,27 @@ function replaceInDoc(doc) {
                 var nb = tf.visibleBounds;
                 tf.translate(ocx - (nb[0] + nb[2]) / 2, 0);
             } catch (e) {}
+        }
+
+        /* 防溢出：墨迹宽 > maxw 时按比例缩字号并回中，迭代两轮收敛 */
+        var maxw = MAXW[key];
+        if (maxw && sz) {
+            var cur = sz;
+            for (var pass = 0; pass < 2; pass++) {
+                try {
+                    var vb = tf.visibleBounds;
+                    var w = vb[2] - vb[0];
+                    if (w > maxw) {
+                        cur = Math.max(6, cur * maxw / w);
+                        nw.characterAttributes.size = cur;
+                        if (ocx !== null) {
+                            var vb2 = tf.visibleBounds;
+                            tf.translate(ocx - (vb2[0] + vb2[2]) / 2, 0);
+                        }
+                        log("  shrink: " + MAP[key] + " -> " + Math.round(cur * 10) / 10 + "pt");
+                    } else { break; }
+                } catch (eF) { break; }
+            }
         }
 
         count++;
