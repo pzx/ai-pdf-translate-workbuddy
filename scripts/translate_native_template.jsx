@@ -76,10 +76,11 @@ function replaceInDoc(doc) {
         try { clr  = old.characterAttributes.fillColor; } catch (e) {}
         try { just = old.paragraphAttributes.justification; } catch (e) {}
 
-        /* 记录替换前的水平中心（只用于水平回中） */
+        /* 记录替换前的墨迹中心（只用于水平回中 + 缩字后垂直回补） */
         var ob = null;
         try { ob = tf.visibleBounds; } catch (e) {}
         var ocx = ob ? (ob[0] + ob[2]) / 2 : null;
+        var ocy = ob ? (ob[1] + ob[3]) / 2 : null;
 
         tf.contents = MAP[key];
 
@@ -100,10 +101,14 @@ function replaceInDoc(doc) {
             } catch (e) {}
         }
 
-        /* 防溢出：墨迹宽 > maxw 时按比例缩字号并回中，迭代两轮收敛 */
+        /* 防溢出：墨迹宽 > maxw 时按比例缩字号，迭代两轮收敛。
+           缩字号后墨迹以基线为锚向上收缩、视觉中心下沉，所以缩放完成后
+           必须把墨迹垂直中心回补到原文字的墨迹垂直中心（ocy）——
+           否则缩得越多文字越偏下（德语 Buchstaben 16.4pt 偏下就是这个问题）。 */
         var maxw = MAXW[key];
         if (maxw && sz) {
             var cur = sz;
+            var shrank = false;
             for (var pass = 0; pass < 2; pass++) {
                 try {
                     var vb = tf.visibleBounds;
@@ -111,13 +116,17 @@ function replaceInDoc(doc) {
                     if (w > maxw) {
                         cur = Math.max(6, cur * maxw / w);
                         nw.characterAttributes.size = cur;
-                        if (ocx !== null) {
-                            var vb2 = tf.visibleBounds;
-                            tf.translate(ocx - (vb2[0] + vb2[2]) / 2, 0);
-                        }
+                        shrank = true;
                         log("  shrink: " + MAP[key] + " -> " + Math.round(cur * 10) / 10 + "pt");
                     } else { break; }
                 } catch (eF) { break; }
+            }
+            if (shrank && ocx !== null) {
+                try {
+                    var vb3 = tf.visibleBounds;
+                    tf.translate(ocx - (vb3[0] + vb3[2]) / 2,
+                                 (ocy !== null ? ocy - (vb3[1] + vb3[3]) / 2 : 0));
+                } catch (eC) {}
             }
         }
 
