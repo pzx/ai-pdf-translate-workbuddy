@@ -163,6 +163,8 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 - **正文限宽**（`layout` + `width_tables.json`）：`build_width_tables.py` 用源稿 spans + 译文 + 真实字体量出每个词的 `MAXW`（可用墨迹宽）与 `SCALE`（字号系数），放不下的先折两行、再按 `min_scale` 缩字号；`make_jsx.py` 注入这两张表并逐词执行。**没有这张表时正文长词会直接冲出卡片**。
 - **墨迹对齐**（`ink_bounds_words`）：开则复制文字→转曲→量真墨迹框（不含字体留白）再定位，比 `visibleBounds` 准但稍慢；默认关以保持速度。标题始终用 inkBounds。
 - **双行行距**：含软回车的框设 `autoLeading=false`、leading=`max(cap×字号+gap, 0.94×字号+1)`——0.94em 是 typo 行高，低于它下行会碰上行；单行沿用 `lead_at_18×(字号/18)`。
+- **正文字号是固定的，只有标题可改大小**：正文放不下时按「换更贴切的词 → 折两行 → 邻格/整体让位 → `PN-TIGHT`/`manual` 交人工」处理，**不得**缩字号。所以决策里不要给正文写 `sz`、不要配 `tuning.sizefix`，求解器也没有自动缩号这一档。一版卡片正文统一 18pt，个别词变成 16.9pt 一眼就能看出来。
+- **译表里的 `\r` 是人工指定的换行，求解器必须保留**：早期求解释放冲突的第一步是 `val.replace('\r',' ')`，把人工分好的两行拍平回一行——一条 148pt 的长词于是被塞回 135pt 的列，只能靠左右移位硬挤，最后离邻居 3pt。现在带 `\r` 的译文原样保留断行、只重新居中。
 - **页码是右侧禁区，不只是下方障碍**（`layout.pageno_gap_pt` 默认 10.5；`pageno_shift_cap_pt` 默认 16）：角上的页码由模板绘制、不进译表，所以任何「标签对标签」的检查都看不见它。`build_decisions` 现在对**同一行**的每个标签算 `右端 ≤ 页码左端 − pageno_gap`，不够就左移（上限 shift_cap，并避让左邻居），移不动打 `PN-TIGHT` 让人换短词。实测一版卡片 `accovacciarsi` 右端距页码仅 4.8pt、`cavolo riccio` 仅 1.1pt——印出来就是压字。
 - **文本与插画不相交**（`obstacle_gap` + `obstacle_nudge_cap`）：决策 JSON 可在 `"obstacles": {"<画板>": [[x0,y0,x1,y1],...]}` 给插图框（与 visibleBounds 同坐标系，top>y>bottom）。默认 `ocap=0` **只告警不移动**；决策引擎已做过避让就保持 0，手工搭决策才调大让它上移。
 - **按画板取决策**（`boardOf`）：同一英文 key 可能出现在多页（`tree`、`rainbow`），出图时必须先用文字框中心算出它属于哪个画板，只取该画板的 `cx`；否则会拿别页的坐标，把词拖到另一页的插图上。
@@ -177,6 +179,7 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 - **字号改回源值自动清覆盖**：`rec.sz` 与源字号差 <0.05 时删除该键。
 - **签名不含脚本**：指纹只算决策文件 + 源稿 + `width_tables.json` 的 size/mtime；改脚本不误触发全量，故意重做加 `--force`。`width_tables.json` 必须计入——折行/短译/槽宽都在里面，漏掉它会出现「改了规则但重建全 SKIP（unchanged）」的假象。
 - **不可翻译的模板元素也是版面**：页码、角标、水印不进译表，因此不会被任何词表或标签碰撞检查覆盖。凡是模板画的固定元素，都要单独当障碍物建模——页码已内置，其它角标用决策 JSON 的 `obstacles` 传。
+- **体检要量「决策实际要排的字」，不是字宽表里的全称**：`qa_prebuild` 的 FIT 曾用 `width_tables.overflow` 的 `need_scale`，而那张表在求解前生成、记的是长全称。求解器选了短译（`коляска` 而非 `инвалидная коляска`）后，检查器仍按全称判「放不下」，凭空报出 2 条超宽——照着改会把正确译文改坏。现在按决策里的 `val` 与 `width_tables.slot[key].maxw` 现场算。
 - **检查必须在出图前**：`rebuild.py` 一次出一整本（几分钟到十几分钟），「先出图再抽检」会把每个可静态计算的缺陷都变成一次全量重出。能算的（字宽、间距、字形覆盖）一律先用 `qa_prebuild.py` 算完再出图，出图后只用 `qa_output.py` 做实物复核。
 - **work 目录别放名字含 `decision` 的其它 JSON**：`build_width_tables.py` 只认 `v7_dec_<lang>_<color>.json`（已按文件名结构过滤并跳过其它文件），但历史版本会把它当决策解析并 IndexError；调优文件建议命名 `posfix.json`。
 - **`rebuild.py` 选择器**：`all` / `<lang>` / `<color>` / `<lang>:<color>` / `<lang>_<color>` / 逗号分隔均可用；旧版按前两个字符切分会把 `it:orange` 静默解析成无效组合后照常退 0。

@@ -81,7 +81,6 @@ def text_w(code, s, size):
 T = json.load(open(os.path.join(cfg.work, cfg.f['translations']), encoding='utf-8'))
 WT_PATH = os.path.join(cfg.work, 'width_tables.json')
 WT = json.load(open(WT_PATH, encoding='utf-8')) if os.path.exists(WT_PATH) else {}
-OVER = {lg: {e['en']: e for e in v} for lg, v in (WT.get('overflow') or {}).items()}
 geom = GeomLib(cfg)
 
 
@@ -111,7 +110,6 @@ rows_out = []
 hard = 0
 for code in langs:
     cap = float(CAPBY.get(code, CAP))
-    ov = OVER.get(code, {})
     for color in colors:
         p = cfg.decision_path(code, color)
         if not os.path.exists(p):
@@ -140,17 +138,31 @@ for code in langs:
                 # missing translation -- only an absent table entry is.
                 if want is None and not en.split('@')[0].startswith('short@'):
                     issues['MISS'].append([ab, en, 'no-translation'])
-                e = ov.get(en)
+                # Measure the text the solver ACTUALLY decided to set, not the
+                # value recorded in the width table. The table is written before
+                # the solver runs, so it still holds the long form; when the
+                # solver picked a short form ("коляска" instead of "инвалидная
+                # коляска") the old code compared the short text against the
+                # long text's scale and reported a phantom overflow -- chasing
+                # those reports would have made me damage correct translations.
+                sl = (WT.get('slot') or {}).get(
+                    en.split('@')[0].replace('#abbr', '')) or {}
+                base_sz = float(ENG.get('base_size', 18.0))
+                need = None
+                if sl.get('maxw'):
+                    wid = text_w(code, val, base_sz)
+                    if wid > 0:
+                        need = sl['maxw'] / wid
                 # Two things make the single-line slot test meaningless:
                 # a value the solver already split, and a multi-word value the
                 # width table can split (its 2-line form is far narrower). What
                 # genuinely cannot recover is ONE long word -- it can only be
                 # shrunk or replaced, so that is what gets reported.
-                if (e and e.get('need_scale', 1.0) < MIN_SCALE and ' ' not in val
+                if (need is not None and need < MIN_SCALE and ' ' not in val
                         and '\r' not in val and v.get('mode') != 'wrap' and not v.get('wrap')):
-                    issues['FIT'].append([ab, en, val, round(e['need_scale'], 2)])
-                if '#abbr' in en and sz < 15 and e and e['need_scale'] < 0.9:
-                    issues['ABBR'].append([ab, en, val, round(e['need_scale'], 2)])
+                    issues['FIT'].append([ab, en, val, round(need, 2)])
+                if '#abbr' in en and sz < 15 and need is not None and need < 0.9:
+                    issues['ABBR'].append([ab, en, val, round(need, 2)])
 
         for ab, pg in geom.parse(color).items():
             items = dec.get(str(ab)) or {}

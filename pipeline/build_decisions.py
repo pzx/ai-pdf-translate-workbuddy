@@ -90,6 +90,10 @@ LEAD_EXTRA = float(P.get('lead_extra_pt', 1.0))
 LAY = cfg.d.get('layout', {}) or {}
 PN_GAP = float(LAY.get('pageno_gap_pt', IGH))       # keep >= inter-label gap
 PN_SHIFT_CAP = float(LAY.get('pageno_shift_cap_pt', 16.0))
+# Body type is FIXED on this deck family: only a card title may change size.
+# The solver therefore has no "shrink" rung -- a label that cannot fit is
+# reported (PN-TIGHT / manual) for the translator to reword, never silently
+# set smaller than the rest of the card.
 
 T = load_translations()
 
@@ -578,7 +582,14 @@ def solve_book(lang, color):
                     if st['mode'] == 'manual':
                         st['mode'] = 'keep'
                     continue
-                cand_val = st['val'].replace('\r', ' ')
+                # A value whose line break came FROM THE TABLE is a request,
+                # not a suggestion: keep the break and re-centre the block.
+                # Flattening it made a hand-set two-line label ("cadeira de\
+                # rodas", written because the single line overruns its column)
+                # come back as one 148pt line that then had to be shifted until
+                # it nearly touched its neighbour. Solved values (wrap/short)
+                # still go through the normal ladder below.
+                cand_val = st['val'] if '\r' in st['val'] else st['val'].replace('\r', ' ')
                 got = try_single(en, cand_val)
                 if got:
                     st.update(val=cand_val, cx=got[0], dy=got[1], mode='single'); changed = True; continue
