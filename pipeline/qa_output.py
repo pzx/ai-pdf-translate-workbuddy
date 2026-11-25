@@ -39,13 +39,32 @@ if '--files' in argv:
     i = argv.index('--files') + 1
     while i < len(argv) and not argv[i].startswith('--'):
         files.append(argv[i]); i += 1
+if '--files' in argv and not files:
+    sys.exit('--files given without a path')
 explicit = bool(files)
 
 EXPECT = {}
+# Pill-title probing. These describe the ARTWORK, not this book: a different
+# deck has a different pill, and the gate must be told where to look instead of
+# silently finding nothing (which is how it passed vacuously before). Overridden
+# by layout.title_pill_w_range / _h_range / title_top_pt / title_glyph.
+PILL_W = (100.0, 145.0)      # pill width range, pt
+PILL_H = (26.0, 46.0)        # pill height range, pt
+PILL_TOP = 80.0              # the pill sits in the top band of the page
+POUT = 1.02                  # a corner this far outside the oval = real overflow
+CTOL = 1.0                   # block centre vs pill centre, pt
+GLYPH = 'light'              # 'light' = white glyphs on a dark pill
 if not explicit:
     from common import Config
     cfg = Config(None)
     FILL = float(cfg.d.get('geometry', {}).get('title_two_fill', 1.0))
+    _L = cfg.d.get('layout', {}) or {}
+    PILL_W = tuple(_L.get('title_pill_w_range', PILL_W))
+    PILL_H = tuple(_L.get('title_pill_h_range', PILL_H))
+    PILL_TOP = float(_L.get('title_top_pt', PILL_TOP))
+    POUT = float(_L.get('title_pout', POUT))
+    CTOL = float(_L.get('title_center_tol_pt', CTOL))
+    GLYPH = _L.get('title_glyph', GLYPH)
     # Map by EXACT product name, not by a colour-name substring: two colours can
     # share a substring, and a product template that omits the colour name would
     # silently never be page-checked.
@@ -54,11 +73,19 @@ if not explicit:
             ai_p, pdf_p = cfg.product_paths(l['code'], c['code'])
             EXPECT[os.path.basename(ai_p)] = c['pages']
             EXPECT[os.path.basename(pdf_p)] = c['pages']
+    # --lang accepts the config code (it) as well as the product label (意大利语).
+    # Matching on the filename only meant `--lang it` silently checked ZERO files
+    # and still printed "0 problem(s)".
+    _match = [lang_only] if lang_only else []
+    if lang_only in cfg.L:
+        _match.append(cfg.L[lang_only]['name'])
     for f in sorted(glob.glob(os.path.join(cfg.output, '*', 'ai', '*.ai')) +
                     glob.glob(os.path.join(cfg.output, '*', 'pdf', '*.pdf'))):
-        if lang_only and lang_only not in os.path.basename(f):
+        if _match and not any(m in os.path.basename(f) for m in _match):
             continue
         files.append(f)
+    if not files:
+        sys.exit('no product matched --lang %r / output %s' % (lang_only, cfg.output))
 
 
 def pageno_spans(spans):
@@ -73,6 +100,38 @@ def pageno_spans(spans):
     return small or []
 
 
+def _text_rows(page, pill):
+    """Rows of a LIVE title (an .ai is editable artwork, so its title is a TEXT
+    FRAME and there is not a single glyph path inside the pill -- the vector
+    probe alone reported every .ai page as unreadable). Each span's baseline
+    origin is the baseline, so descenders do not inflate the cap band."""
+    got = []
+    for b in page.get_text('dict')['blocks']:
+        for l in b.get('lines', []):
+            for s in l['spans']:
+                if not s['text'].strip():
+                    continue
+                r = pymupdf.Rect(s['bbox'])
+                if (r.x0 >= pill.x0 - 2 and r.x1 <= pill.x1 + 2
+                        and r.y0 >= pill.y0 - 3 and r.y1 <= pill.y1 + 3):
+                    got.append((r, s['origin'][1]))
+    if not got:
+        return []
+    got.sort(key=lambda x: x[1])
+    rows = [[got[0]]]
+    for r, base in got[1:]:
+        if abs(base - rows[-1][-1][1]) > 1.0:
+            rows.append([(r, base)])
+        else:
+            rows[-1].append((r, base))
+    out = []
+    for row in rows:
+        box = pymupdf.Rect(min(r.x0 for r, _ in row), min(r.y0 for r, _ in row),
+                           max(r.x1 for r, _ in row), max(r.y1 for r, _ in row))
+        out.append((box, statistics.median([b for _, b in row])))
+    return out
+
+
 def title_rows(page):
     """Geometry of a pill title, read from VECTOR PATHS.
 
@@ -81,13 +140,19 @@ def title_rows(page):
     post-build gate passed vacuously. The pill and its glyphs are still vector
     drawings, so this works on the shipped file.
 
-    Returns (pill_rect, [row_bbox, ...]) or None when the page has no pill
-    (other layouts are simply not checked here).
+    Returns (pill_rect, [row_bbox, ...], kind) or None when the page has no pill
+    at all (other layouts are simply not checked here). kind is 'path' for the
+    shipped (outlined) artwork and 'text' when the title is still live -- an .ai
+    is editable, so its title is a text frame and the row boxes are SPAN boxes,
+    which include the font's side bearings and ascent/descent. Those are fine
+    for the block centre but too fat to judge the oval corner by corner.
+    A pill with no rows at all means the probe found nothing to read.
     """
     pill = None
     for dr in page.get_drawings():
         r = dr['rect']
-        if 100 < r.width < 145 and 26 < r.height < 46 and r.y1 < 80:
+        if (PILL_W[0] < r.width < PILL_W[1] and PILL_H[0] < r.height < PILL_H[1]
+                and r.y1 < PILL_TOP):
             if pill is None or r.width * r.height > pill.width * pill.height:
                 pill = r
     if pill is None:
@@ -97,16 +162,27 @@ def title_rows(page):
         f = dr.get('fill')
         if not f or len(f) < 3:
             continue
-        if min(f[0], f[1], f[2]) < 0.85:            # white glyphs on a dark pill
+        mn = min(f[0], f[1], f[2])
+        if GLYPH == 'light' and mn < 0.85:          # white glyphs on a dark pill
+            continue
+        if GLYPH == 'dark' and mn > 0.45:           # dark glyphs on a light pill
             continue
         r = dr['rect']
         if r.width <= 0.2 or r.height <= 0.2:
+            continue
+        # The pill's own fill is a drawing inside the pill too; a path almost as
+        # big as the pill is the background, not a glyph (in 'dark' mode it
+        # would otherwise be read as one and report u=2.0 on every page).
+        if r.width > pill.width * 0.9 and r.height > pill.height * 0.9:
             continue
         if (r.x0 >= pill.x0 - 2 and r.x1 <= pill.x1 + 2
                 and r.y0 >= pill.y0 - 3 and r.y1 <= pill.y1 + 3):
             glyphs.append(r)
     if not glyphs:
-        return None
+        # No glyph paths: the title is still LIVE TEXT (editable .ai, or a PDF
+        # that was never outlined). Read it there instead of calling the page
+        # unchecked -- that is what the whole gate is supposed to prevent.
+        return pill, _text_rows(page, pill), 'text'
     glyphs.sort(key=lambda r: (r.y0 + r.y1) / 2)
     med_h = statistics.median([r.height for r in glyphs]) or 1.0
     rows, cur = [], [glyphs[0]]
@@ -126,7 +202,7 @@ def title_rows(page):
         bottoms = sorted(r.y1 for r in row)
         base = bottoms[len(bottoms) // 2]
         out_rows.append((box, base))
-    return pill, out_rows
+    return pill, out_rows, 'path'
 
 
 def title_issues(page, pno):
@@ -137,21 +213,37 @@ def title_issues(page, pno):
     got = title_rows(page)
     if not got:
         return []
-    pill, rows = got
+    pill, rows, kind = got
+    if not rows:
+        # The pill is there but nothing inside it looked like a glyph path, so
+        # this page was NOT checked. Reporting it as silence is what let the
+        # whole gate pass vacuously when it was still reading live text.
+        return [('TITLE-UNREAD', pno, 'no glyph paths')]
     out = []
     cx, cy = (pill.x0 + pill.x1) / 2, (pill.y0 + pill.y1) / 2
     a, b = (pill.x1 - pill.x0) / 2, (pill.y1 - pill.y0) / 2
     if len(rows) >= 2:
         top, bot = rows[0][0].y0, rows[-1][0].y1
         off = (top + bot) / 2 - cy
-        if abs(off) > 1.0:
+        # A live title's span box adds the font's ascent above the cap and its
+        # descent below the last baseline, and the two are not symmetric
+        # (measured 1.5pt on the pt-BR book even though the shipped PDF sits at
+        # 0.0pt), so the tolerance is wider for text than for real glyph paths.
+        tol = CTOL if kind == 'path' else CTOL * 2.5
+        if abs(off) > tol:
             out.append(('TITLE-CENTER', pno, '%.1fpt off' % off))
     for i, (r, base) in enumerate(rows):
+        if kind != 'path':
+            # A span box carries the font's side bearings and its full ascent,
+            # so its corners sit outside the ink by several points and would
+            # report a false overflow on every live-title page. The shipped PDF
+            # is judged on real glyph paths; here only the block centre counts.
+            continue
         worst = 0.0
         for px in (r.x0, r.x1):
             for py in (r.y0, base):             # cap band, descender excluded
                 worst = max(worst, ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2)
-        if worst > 1.02:
+        if worst > POUT:
             out.append(('TITLE-POUT', pno, 'row%d %.2f of the oval' % (i + 1, worst)))
         elif worst > FILL + 0.02 and len(rows) >= 2:
             # Inside the oval but past the margin the config asks for. With the
@@ -164,6 +256,10 @@ def title_issues(page, pno):
             out.append(('TITLE-TIGHT', pno, 'row%d %.2f of the oval' % (i + 1, worst)))
     return out
 
+
+if not files:
+    sys.exit('no file to check (nothing matched the selector) -- refusing to '
+             'report a clean pass on zero files')
 
 bad = 0
 warns = []
@@ -215,6 +311,14 @@ for f in files:
         print('      %-7s p%-3d %-22s %s' % (h[0], h[1], h[2], h[3:]))
     if len(hits) > 12:
         print('      ... %d more' % (len(hits) - 12))
+    if any(h[0] == 'TITLE-UNREAD' for h in hits):
+        print('      NOTE  a pill was found but no glyph path matched. The page was '
+              'NOT checked:')
+        print('            if the title is dark on a light pill set '
+              'layout.title_glyph = "dark";'
+              )
+        print('            if the pill itself differs, tune layout.title_pill_w_range, '
+              'title_pill_h_range, title_top_pt.')
 
 if warns:
     print('\n%d title(s) inside the pill but past the configured margin '

@@ -287,6 +287,15 @@ def signature(cfg, lang, color):
     rebuild reports SKIP(unchanged) and the new rule never reaches the files.
     """
     h = hashlib.md5()
+    # Layout-affecting CONFIG, not just data. Editing title_two_fill, the
+    # ellipse margin or a language font used to leave the fingerprint alone, so
+    # `rebuild.py all` reported SKIP(unchanged) on every book and the new rule
+    # never reached the artwork -- the worst kind of silent no-op. Generator
+    # SCRIPTS stay excluded on purpose (a script is usually still being
+    # iterated): use --force there.
+    sect = {k: cfg.d.get(k) for k in ('geometry', 'layout', 'gate', 'decision_engine',
+                                      'languages', 'default_font')}
+    h.update(json.dumps(sect, sort_keys=True, ensure_ascii=True).encode())
     st = os.stat(cfg.decision_path(lang, color))
     h.update(('%s|%s|' % (st.st_size, int(st.st_mtime))).encode())
     wt = os.path.join(cfg.work, 'width_tables.json')

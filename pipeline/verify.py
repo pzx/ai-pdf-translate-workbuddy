@@ -4,23 +4,18 @@ plus optional layout-constraint checks fed by the decision JSON.
 
     python verify.py [pipeline.json] [--layout]
 
-Basic checks (always on): every PDF exists, page count matches config, zero
-live text (text was outlined). --layout adds static checks over the decision
-JSON that catch the classic card bugs before they ship:
+Basic checks (always on): every configured product exists (a book that was
+never built is reported MISSING instead of silently vanishing from the report),
+page count matches config, zero live text (text was outlined), size.
 
-  * overflow   - a decision entry whose font size (sz) is absent/smaller than
-                 source yet the translated word is much longer than the source
-                 (heuristic: need sz when val is >=1.6x the source length).
-  * obstacles  - illustration boxes ("obstacles" in the decision JSON) that
-                 overlap a word's declared centre (cx) within the artboard.
-  * two-line   - a translated value with a soft break must set a leading mode
-                 (the JSX does this; here we just report such entries so they
-                 are reviewed).
-  * page-edge  - rendered PDF pages: report ink outside the safe page frame
-                 (outlined text/graphics touching the TrimBox edge).
+--layout adds static checks over the decision JSON:
+  * undecided - an entry with a translation but no layout decision at all
+                (no cx/dy/mode), i.e. the engine never placed it.
+  * obstacle  - an illustration box that spans the word's declared centre cx.
 
-All layout findings are WARNINGS with an exit code 2 (basic failures still exit
-1); they are advisory because the authoritative geometry lives in Illustrator.
+Everything layout-related is a WARNING (exit 2); basic failures exit 1. The
+advisory level is deliberate: the authoritative geometry lives in Illustrator,
+and qa_prebuild.py / qa_output.py are the enforcing gates.
 """
 import os, sys, glob, json
 import pymupdf
@@ -30,7 +25,7 @@ cfg = Config(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--
 LAYOUT = '--layout' in sys.argv
 OUT = os.path.join(cfg.output, cfg.batch, 'pdf')
 S = cfg.s
-E, V, SZ = S['entries'], S['value'], S['size_override']
+E, V = S['entries'], S['value']
 
 print('%-46s %5s %7s %9s' % ('file', 'pages', 'text', 'size MB'))
 bad = 0
@@ -85,7 +80,7 @@ if LAYOUT:
                     # decision engine never sized/positioned it -> likely to
                     # overflow. A translated word being longer than the source
                     # is NOT itself a problem: the engine already sized it.
-                    layout_keys = ('cx', 'dy', SZ, S.get('mode', 'mode'))
+                    layout_keys = ('cx', 'dy', S.get('mode', 'mode'))
                     if not any(k in rec for k in layout_keys) and val != en:
                         print('  WARN undecided %s|%s|%s|%s val=%r (no layout decision)' % (lc, cc, ab, en, val))
                         warn += 1

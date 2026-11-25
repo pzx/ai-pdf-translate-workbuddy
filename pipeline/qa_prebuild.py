@@ -50,6 +50,15 @@ MIN_SCALE = float(LAY.get('min_scale', 0.72))
 CLASH_GAP = float(LAY.get('clash_gap_pt', ENG.get('min_gap_pt', 5.669)))
 PN_GAP = float(LAY.get('pageno_gap_pt', ENG.get('inter_label_gap_pt', 10.5)))
 ALLOW_BODY_SZ = bool((cfg.d.get('gate') or {}).get('allow_body_sz', False))
+
+
+def body_size(rec):
+    """The size a body label will actually be set at. A `sz` in the decision is
+    rejected below, so measuring with it would make FIT/CLASH disagree with what
+    Illustrator produces; honour it only when the project opted in."""
+    if ALLOW_BODY_SZ:
+        return (rec or {}).get('sz') or ENG.get('base_size', 18.0)
+    return ENG.get('base_size', 18.0)
 langs = sel[0].split(',') if sel else [l['code'] for l in cfg.langs]
 colors = [c['code'] for c in cfg.colors]
 
@@ -124,7 +133,7 @@ for code in langs:
         for ab, items in dec.items():
             for en, v in items.items():
                 val = v.get('val') or ''
-                sz = v.get('sz') or ENG.get('base_size', 18.0)
+                sz = body_size(v)
                 if not v.get('val'):
                     issues['MISS'].append([ab, en, 'empty'])
                     continue
@@ -178,7 +187,7 @@ for code in langs:
             for l in pg['labels']:
                 _, v = pick(items, l['en'], l['cx'])
                 val = (v or {}).get('val') or l['en']
-                sz = (v or {}).get('sz') or ENG.get('base_size', 18.0)
+                sz = body_size(v)
                 cx = (v or {}).get('cx')
                 cx = l['cx'] if cx is None else cx
                 # group by the engine's own row id when geometry provides it:
@@ -205,7 +214,7 @@ for code in langs:
                 for l in pg['labels']:
                     _, v = pick(items, l['en'], l['cx'])
                     val = (v or {}).get('val') or l['en']
-                    sz = (v or {}).get('sz') or ENG.get('base_size', 18.0)
+                    sz = body_size(v)
                     cx = (v or {}).get('cx')
                     cx = l['cx'] if cx is None else cx
                     # A wrapped label is ~2x taller than one line; measuring it

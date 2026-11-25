@@ -197,7 +197,7 @@
     "obstacle_gap": 2.0,
     "obstacle_nudge_cap": 0
   },
-  "_layout_comment": "Body type is FIXED: no key here can shrink a body word. A label that does not fit is wrapped, shifted, short-formed (translations '<lang>_short') or reported for rewording. qa_prebuild.min_scale is only the severity threshold for the FIT report, not a shrink factor.",
+  "_layout_comment": "Body type is FIXED: no key here can shrink a body word. A label that does not fit is wrapped, shifted, short-formed (translations '<lang>_short') or reported for rewording. min_scale is only the severity threshold of the FIT report (a word needing to be under 72% of its size to fit is treated as 'cannot fit'), NOT a shrink factor. The title_pill_*/title_top_pt/title_pout/title_center_tol_pt/title_glyph keys describe how the POST-BUILD gate (qa_output.py) finds a pill title in the finished vector artwork: set them per artwork, otherwise the gate finds nothing and reports TITLE-UNREAD instead of passing silently.",
   "layout": {
     "title_band_pt": 62,
     "body_thresh_pt": 135,
@@ -215,6 +215,18 @@
     "bottom_row_pt": 60,
     "row_lift_headroom_pt": 60,
     "facts_max_missing_ratio": 0.5,
-    "min_scale": 0.72
+    "min_scale": 0.72,
+    "title_pill_w_range": [
+      100,
+      145
+    ],
+    "title_pill_h_range": [
+      26,
+      46
+    ],
+    "title_top_pt": 80,
+    "title_pout": 1.02,
+    "title_center_tol_pt": 1.0,
+    "title_glyph": "light"
   }
 }

@@ -15,7 +15,7 @@ python init_translations.py --check      # 缺键/多键/空值/软回车/_short
 python preflight.py                      # 体检：内框/插画/标题/译表覆盖（阻断项退 2）
 python build_width_tables.py             # 量字宽 -> work/width_tables.json（正文限宽/折行）
 #   译文或字体改了就要重跑；没有这张表正文长词会冲出卡片
-python build_decisions.py all            # 几何 + 译文 -> 决策 JSON（带 cx/dy/sz）
+python build_decisions.py all            # 几何 + 译文 -> 决策 JSON（带 cx/dy；正文不写 sz）
 python qa_prebuild.py                    # ★出图前体检：字形/字宽/同排/页码/漏译/标题/缩写格
 #   有阻断项退 1。这里改一个词 = 改译表；出图后才发现 = 重出一整本
 python ledger_export.py                  # 决策 JSON -> output/xlsx/<ledger>
@@ -26,7 +26,7 @@ python rebuild.py it:orange              # 只重建改过的一本
 python rebuild.py all                    # 全部（自动跳过未变）
 python verify.py                         # 页数 + text=0 + 文件齐全
 python verify.py --layout                # 附：决策意图静态校验（未定版式/插图相交）
-python qa_output.py                      # ★出图后复核：直接读成品字形坐标，查页码压字/出血/页数
+python qa_output.py                      # ★出图后复核：直接读成品字形坐标，查页码压字/出血/页数/标题居中与椭圆溢出
 python letters_export.py                 # 字母对应表（字母页卡片专用）
 ```
 
@@ -45,7 +45,7 @@ python export_geometry.py all --no-run    # 1a) 只生成几何导出 JSX，不�
 #     逐个打开 work/export_geom_<色>.jsx 检查？不需要——直接看下一步产出的 TSV 计数
 python export_geometry.py all             # 1b) 调 Illustrator 导出 geom_/inner_ TSV
 #     检查每本 geom_<色>.tsv 的 L/I/T 行数是否符合版面；不对就调 config.geometry_export 门限重跑
-python build_decisions.py all             # 2) 几何+译文 -> 带 cx/dy/sz 的决策 JSON
+python build_decisions.py all             # 2) 几何+译文 -> 带 cx/dy 的决策 JSON（正文不写 sz）
 #     输出 WROTE ... entries=N with_cx=N；with_cx 必须等于 entries，否则闸门会拦
 python build_width_tables.py              # 2b) 量字宽 -> width_tables.json（正文 MAXW + 折行）
 python ledger_export.py                   # 3) 出台账，人工审校译文 -> ledger_import 回灌
@@ -87,7 +87,7 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 | `schema` | 决策 JSON 内的键名（默认 dec/val/sz/mode/title_map）+ `ab_is_zero_based` |
 | `jsx` | 生成器、批处理 runner（默认 `../scripts/run_batch.ps1`）、wait_ms、done_marker、pdf_compatible |
 | `geometry` | 版式约束注入 JSX 的参数（标题椭圆适配、inkBounds、双行行距、插图避让）——见下节 |
-| `layout` | 版式常量：`body_thresh_pt`（槽可用宽）、`title_maxw_pt`（无椭圆时的标题上限）、`wrap_space_pt`/`wrap_lift_pt`（折行所需下方空间与可上移量）、`pageno_gap_pt`/`pageno_shift_cap_pt`（页码禁区与最大让位）、`clash_gap_pt`、`obstacle_gap_pt`、`row_tol_pt`、`bottom_row_pt`、`facts_max_missing_ratio`。**没有任何键能缩正文字号** |
+| `layout` | 版式常量：`body_thresh_pt`（槽可用宽）、`title_maxw_pt`（无椭圆时的标题上限）、`wrap_space_pt`/`wrap_lift_pt`（折行所需下方空间与可上移量）、`pageno_gap_pt`/`pageno_shift_cap_pt`（页码禁区与最大让位）、`clash_gap_pt`、`obstacle_gap_pt`、`row_tol_pt`、`bottom_row_pt`、`facts_max_missing_ratio`、`min_scale`（`FIT` 严重度阈值：需要缩到 72% 才装下即视为装不下；**不是**缩号开关）。出图后闸门另有 `title_pill_w_range`/`title_pill_h_range`/`title_top_pt`/`title_pout`/`title_center_tol_pt`/`title_glyph`。**没有任何键能缩正文字号** |
 | `geometry_export` | 换版型时导出几何的对象分类门限（label/frame/title/illus/inner 尺寸区间、插图方向、`title_band_ratio`）——见「换版型闭环」|
 | `decision_engine` | 决策求解阈值（最小间距、位移上限、行距等，punkt）；新项目一般沿用默认 |
 | `layout.title_band_pt` | 标题带高度：文字底边距页顶小于该值视为标题（默认 62，适合卡片；整页/海报版式需调大，否则读不到标题字号） |
@@ -100,7 +100,7 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 
 ```json
 {
-  "dec": { "0": { "egg": {"val":"uovo","cx":708.3,"dy":0,"mode":"keep","sz":18.0} } },
+  "dec": { "0": { "egg": {"val":"uovo","cx":708.3,"dy":0,"mode":"keep"} } },
   "title_map": { "Vehicles": "Veicoli" }
 }
 ```
@@ -129,7 +129,7 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 | `common.py` | 配置加载、路径解析、字号/中文查询、\r↔\n 归一化、指纹、列定位 |
 | `geomlib.py` | 几何 TSV 解析（labels/illus/frames/pageno/title + own_illus 关联），路径来自配置 |
 | `export_geometry.py` + `geometry_export_template.jsx` | 换版型时从源稿导出几何 TSV；门限配置驱动，JSX 纯 ASCII |
-| `build_decisions.py` | 几何 + 译文 -> 带 cx/dy/sz 的决策 JSON（布局无关的求解），产出过闸门所需数据 |
+| `build_decisions.py` | 几何 + 译文 -> 带 cx/dy 的决策 JSON（布局无关的求解），产出过闸门所需数据；正文不写 `sz` |
 | `init_translations.py` | 语言表骨架/分批合并/校验：`--init` `--keys` `--merge` `--merge-gloss` `--check`。**只生成结构与校验，不编内容** |
 | `export_spans.py` | 源稿 .ai/PDF -> `spans_all.json` + `unique_strings.json`（**全新工程的第一步**，整条链的文本事实都来自它） |
 | `preflight.py` | 出决策前的体检：内框/插画/标题/译表覆盖/未解条目，阻断项退 2 |
@@ -137,8 +137,8 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 | `ledger_export.py` | 决策 JSON → 台账（总览/每语言一页/全语言对照）；**出表前自动回灌**防丢编辑 |
 | `ledger_import.py` | 台账 → 决策 JSON；按表头名定位列、幂等、写前备份 |
 | `letters_export.py` | 字母对应表 + 特有字母页（A–Z 保留英文时说明词与字母的对应） |
-| `qa_prebuild.py` | **出图前闸门**：字形覆盖 / 字宽超槽 / 同排间距 / 页码禁区（含双行块真实高度）/ 漏译 / 标题 / 缩写格 / 正文缩号；`--detail` 列明细、`--json` 存结果，阻断项退 1 |
-| `qa_output.py` | **出图后复核**：读成品 .ai/.pdf 的真实字形坐标，查页码压字（`PAGENO`）/ 出血（`BLEED`）/ 页数（`COUNT`）/ 标题胶囊（`TITLE-CENTER` 双行块心偏离椭圆心 >1pt、`TITLE-POUT` 某行四角越出椭圆 >2%；`TITLE-TIGHT` 多行块角点 >0.96、已无余量，只告警不阻断）。⚠️ 前三项靠 `get_text()`，**成品转曲后文本层为空、整页会被跳过**（这就是"全绿"却漏掉双行偏心的原因），所以标题检查改成读**矢量路径**：胶囊 = 顶部 100–145×26–46pt 的填充椭圆，字形 = 其内白色填充路径，按行聚类、以字形底边中位数当基线（下伸字母不计越界） |
+| `qa_prebuild.py` | **出图前闸门**：字形覆盖 / 字宽超槽 / 同排间距 / 页码禁区（含双行块真实高度）/ 漏译 / 标题 / 缩写格 / 正文被改字号（`SZ`）；`--detail` 列明细、`--json` 存结果，阻断项退 1 |
+| `qa_output.py` | **出图后复核**：读成品 .ai/.pdf 的真实字形坐标，查页码压字（`PAGENO`）/ 出血（`BLEED`）/ 页数（`COUNT`）/ 标题胶囊（`TITLE-CENTER` 双行块心偏离椭圆心 >`title_center_tol_pt`；`TITLE-POUT` 某行角点越出椭圆 >`title_pout`；`TITLE-TIGHT` 多行块超出 `title_two_fill` 的余量、只在项目把 fill 调到 1 以下时才可能触发；`TITLE-UNREAD` 找到胶囊却没匹配到任何字形路径，**阻断**并提示调 `layout.title_glyph`）。⚠️ 前两项靠 `get_text()`，**成品转曲后文本层为空、整页会被跳过**（这就是"全绿"却漏掉双行偏心的原因），所以标题检查读**矢量路径**：胶囊 = 顶部 `title_pill_w_range`×`title_pill_h_range` 内（默认 100–145×26–46pt）、`y1<title_top_pt` 的填充椭圆，字形 = 其内浅色（`title_glyph="light"`）或深色（`"dark"`）填充路径，按行聚类、以字形底边中位数当基线（下伸字母不计越界）。换版型必须同步这几个键，否则闸门找不到胶囊或字形。`.ai` 是**活文本**（标题是 text frame，胶囊内一个字形路径都没有），这时回退读 span 的基线原点：只判块心（容差 ×2.5，span 框的 ascent/descent 空白不对称，实测偏差 1.5pt 而 PDF 是 0.0），椭圆弧判定只对转曲 PDF 的真实字形路径做。 |
 | `rebuild.py` | 指纹增量重建：单本/单语言/全部/`--force`；生成 JSX 后调批处理 |
 | `make_jsx.py` | 决策驱动生成纯 ASCII 的 Illustrator JSX |
 | `verify.py` | 校验 PDF 页数、活字=0（已转曲）、文件齐全；`--layout` 附加决策意图静态检查 |
@@ -153,7 +153,7 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
   2. **必须落在椭圆内**：标题胶囊是真椭圆（4 段贝塞尔），`u=(x/a)²+(y/b)²≤1` 才算放得下；119×34pt 的椭圆在字身高度处只剩约 105pt 可用宽。单行按字身带判定、允许 `g/p` 下伸悬挂，上限 `u≤1`。双行上限同为 `u ≤ title_two_fill`，**默认 1.0：装得下就用源稿字号，只有真溢出才缩**。不要为了「留视觉余量」把它调到 1 以下——`0.9` 每边能多出约 5pt 白边，代价是白丢约 5% 字号（葡语 13.0→12.2pt、意语 15.0→13.4pt），观感是标题变小，而不是更好看；要余量必须显式 opt-in 并接受这个代价。葡语 `Necessidades/diárias` 顶行角点 `u=0.99`、下行 `0.57` 的落差，来自标题本身两行宽度差（43.8pt vs 21pt），块心居中就是正确版式。
      ⚠️ **判据要逐行，不能拿整块包围盒当矩形**：包围盒会把「最宽行的两端」和「最深行的下沿」拼成一个假角——那个角上根本没有墨。按它判：① 太松，首行两端戳出胶囊（14.8pt 时 `Necessidades` 露出深绿）；② 一动就误判，双行块只要下移 2.8pt，包围盒底角 `u` 就从 0.955 涨到 1.18，引擎把本来正确的 13pt 压成 11.5pt。现行实现：`make_jsx._fits()` 按「最宽行的半宽 + 块半高」判定居中的块（块对称，两个外角等价），JSX 的 `centerTitleInPill()` 用 `TITLEW` 传入的**逐行宽度**分别算两行的角点。
   3. **放不下才折两行**：单行缩到源字号 85% 以下才折行；折行用源稿双行标题的字号，再按椭圆收缩。两行必须 **`textRange.paragraphAttributes.justification = CENTER`**（设在 `tf.paragraphAttributes` 上会被静默忽略，两行就左对齐了）。
-  4. **居中基准**：单行按字身框（cap 顶→基线）居中，下伸字母允许悬挂；**双行按整块墨迹框居中**（块心对准椭圆心），上下留白相等（实测：意语 3.96/4.38、葡语 6.36/6.42）。
+  4. **居中基准**：单行按字身框（cap 顶→基线）居中，下伸字母允许悬挂；**双行按整块墨迹框居中**（块心对准椭圆心），上下留白相等（实测：意语 15.0pt 上下各 3.2pt、葡语 13.0pt 上下各 5.7pt，块心偏移 0.0pt）。
      ⚠️ **不许用「下移」补横向余量**：把两行的椭圆利用率拉平（`title_two_balance=1`）确实能让顶行的角点从 0.99 退到 0.79，但块心随之落到胶囊中心以下 —— 上留白 8.4pt、下留白 2.9pt，看着像「整块掉进胶囊」而不是居中。块心居中就是终态：两行宽度不等时，窄的那行离弧更远是正常的。`title_two_balance` 默认 0。
   5. **译文自带换行也算双行**：`"Daily\rNecessities": "Necessidades\rdiárias"` 这种，`two` 必须从**内容**判断（`TITLE[key].indexOf("\r")>=0`），不能只看「本轮代码有没有折行」。只看代码会把双行当单行、只居中首行 cap 带，整块下沉（实测上留白 13.2pt / 下留白 1.4pt）；量宽也必须**逐行取最大值**，把两行拼成一行量会把 15.6pt 算成 11.3pt。
 - **折行落位优先级**：内移（±`shift_cap_pt`）→ **大内移**（±`relax_shift_pt`，仍限本列）→ 折行 → 短译。折行时先吃文字净空 `room`（只抬文字）；文字抬不动、且该标签在**底排**（`illok`）时，才把自己的插图一起抬（`illdy`），上限 = 该排所有插画上方净空 `ceil` 的最小值。同排其它格只跟随文字平移（`rowdy`），插图不动——所以整排的图永远在同一水平线上。台账模式列会标 `·整排↑x`。
@@ -167,7 +167,7 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 - **墨迹对齐**（`ink_bounds_words`）：开则复制文字→转曲→量真墨迹框（不含字体留白）再定位，比 `visibleBounds` 准但稍慢；默认关以保持速度。标题始终用 inkBounds。
 - **双行行距**：含软回车的框设 `autoLeading=false`、leading=`max(cap×字号+gap, 0.94×字号+1)`——0.94em 是 typo 行高，低于它下行会碰上行；单行沿用 `lead_at_18×(字号/18)`。
 - **正文字号是固定的，只有标题可改大小**：正文放不下时按「换更贴切的词 → 折两行 → 邻格/整体让位 → `PN-TIGHT`/`manual` 交人工」处理，**不得**缩字号。所以决策里不要给正文写 `sz`、不要配 `tuning.sizefix`，求解器也没有自动缩号这一档。一版卡片正文统一 18pt，个别词变成 16.9pt 一眼就能看出来。
-  这条现在有三道闸：`build_decisions` 不写 `sz`；`make_jsx` 见到 `sz` 退 3 并中止整批；`qa_prebuild` 的 `SZ` 列出图前再拦。台账「字号」列是只读灰底（`ledger_import` 不再回写 `sz`，改了也只会打印一行 `ignored`）。
+  这条现在有四道闸：`build_decisions` 不写 `sz`；`make_jsx` 见到 `sz` 退 3 并中止整批；`qa_prebuild` 的 `SZ` 列出图前再拦；JSX 运行时（`GEO.absz=false`）一律沿用文本框原字号，决策里即便残留 `sz` 也只记 `BODY-SZ-IGNORED`。台账「字号」列是只读灰底（`ledger_import` 不再回写 `sz`，改了也只会打印一行 `ignored`）。
 - **译表里的 `\r` 是人工指定的换行，求解器必须保留**：早期求解释放冲突的第一步是 `val.replace('\r',' ')`，把人工分好的两行拍平回一行——一条 148pt 的长词于是被塞回 135pt 的列，只能靠左右移位硬挤，最后离邻居 3pt。现在带 `\r` 的译文原样保留断行、只重新居中。
 - **页码是右侧禁区，不只是下方障碍**（`layout.pageno_gap_pt` 默认 10.5；`pageno_shift_cap_pt` 默认 16）：角上的页码由模板绘制、不进译表，所以任何「标签对标签」的检查都看不见它。`build_decisions` 现在对**同一行**的每个标签算 `右端 ≤ 页码左端 − pageno_gap`，不够就左移（上限 shift_cap，并避让左邻居），移不动打 `PN-TIGHT` 让人换短词。实测一版卡片 `accovacciarsi` 右端距页码仅 4.8pt、`cavolo riccio` 仅 1.1pt——印出来就是压字。
 - **文本与插画不相交**（`obstacle_gap` + `obstacle_nudge_cap`）：决策 JSON 可在 `"obstacles": {"<画板>": [[x0,y0,x1,y1],...]}` 给插图框（与 visibleBounds 同坐标系，top>y>bottom）。默认 `ocap=0` **只告警不移动**；决策引擎已做过避让就保持 0，手工搭决策才调大让它上移。
@@ -180,7 +180,7 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 - **出表前先回灌**：目标台账已存在时，`ledger_export` 先跑 import 再覆盖，`XL_NO_SYNC=1` 可跳过。
 - **按表头名定位列**：加列、调列顺序都不破坏回灌；主键用稳定 ID。
 - **`\r`↔`\n` 归一化**：xlsx 把软回车存成 `\n`，不归一化会误判「全表都改了」。
-- **签名不含脚本**：指纹只算决策文件 + 源稿 + `width_tables.json` 的 size/mtime；改脚本不误触发全量，故意重做加 `--force`。`width_tables.json` 必须计入——折行/短译/槽宽都在里面，漏掉它会出现「改了规则但重建全 SKIP（unchanged）」的假象。
+- **签名只排脚本，不排规则**：指纹算决策文件 + 源稿 + `width_tables.json` 的 size/mtime，**外加** `geometry/layout/gate/decision_engine/languages/default_font` 六个配置段的哈希。改脚本不误触发全量（故意重做加 `--force`），但改一个 `title_two_fill`、椭圆边距或字体**必须**让书失效——否则 `rebuild.py all` 全报 SKIP(unchanged)，新规则永远进不了成品。升级到这一版后首次 rebuild 会全量重建一次，因为指纹口径变了。
 - **不可翻译的模板元素也是版面**：页码、角标、水印不进译表，因此不会被任何词表或标签碰撞检查覆盖。凡是模板画的固定元素，都要单独当障碍物建模——页码已内置，其它角标用决策 JSON 的 `obstacles` 传。
 - **体检要量「决策实际要排的字」，不是字宽表里的全称**：`qa_prebuild` 的 FIT 曾用 `width_tables.overflow` 的 `need_scale`，而那张表在求解前生成、记的是长全称。求解器选了短译（`коляска` 而非 `инвалидная коляска`）后，检查器仍按全称判「放不下」，凭空报出 2 条超宽——照着改会把正确译文改坏。现在按决策里的 `val` 与 `width_tables.slot[key].maxw` 现场算。
 - **检查必须在出图前**：`rebuild.py` 一次出一整本（几分钟到十几分钟），「先出图再抽检」会把每个可静态计算的缺陷都变成一次全量重出。能算的（字宽、间距、字形覆盖）一律先用 `qa_prebuild.py` 算完再出图，出图后只用 `qa_output.py` 做实物复核。

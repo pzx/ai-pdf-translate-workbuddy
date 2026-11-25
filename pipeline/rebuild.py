@@ -10,11 +10,14 @@
     python rebuild.py all --force       every book, ignore fingerprints
 
 Fingerprint = decision file (size,mtime) + width_tables.json + source file
-(size,mtime), stored in manifest. Deliberately EXCLUDES generator scripts:
-editing a script must not silently invalidate all books - use --force for an
-intentional full rebuild. Success is judged by OUTPUT PDF mtime, NOT the
-PowerShell stdout (non-UTF8), and the exit code reports failures instead of only
-printing them.
+(size,mtime) + the layout-affecting CONFIG sections (geometry / layout / gate /
+decision_engine / languages / default_font), stored in manifest. The config
+sections are in on purpose: editing title_two_fill or a font must not report
+SKIP(unchanged) on every book while the artwork keeps the old rule. Generator
+SCRIPTS stay out: editing a script must not silently invalidate all books - use
+--force for an intentional full rebuild. Success is judged by OUTPUT PDF mtime,
+NOT the PowerShell stdout (non-UTF8), and the exit code reports failures
+instead of only printing them.
 """
 import os, sys, subprocess, json, time
 from common import (Config, load_manifest, save_manifest, signature)

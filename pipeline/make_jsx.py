@@ -85,7 +85,9 @@ GEO = {
     'lead': g.get('lead_at_18', 17.9),
     'title_fit': bool(g.get('title_fit', True)),
     'ikword': bool(g.get('ink_bounds_words', False)),
-    'emargin': g.get('ellipse_margin', 0.94),
+    # 1.0 = the pill's TRUE half axes: a title may reach the curve, it just may
+    # not cross it. Any margin below 1 silently shrinks titles that do fit.
+    'emargin': g.get('ellipse_margin', 1.0),
     'ewmin': g.get('ellipse_w_range', [80, 150])[0],
     'ewmax': g.get('ellipse_w_range', [80, 150])[1],
     'ehmin': g.get('ellipse_h_range', [18, 60])[0],
@@ -172,6 +174,11 @@ MAXW_JS = ',\n'.join('%s:%s' % (js(en), MAXW[en]) for en in sorted(MAXW))
 # val/mode (no geometry pass). sz is deliberately optional: a missing sz means
 # "keep the source font size", which is the normal case in the reference book.
 gate = cfg.d.get('gate', {})
+# Body type is never resized. The gate below rejects any `sz` on a body entry,
+# but the JSX is the last line of defence: an older decision file or a hand
+# edit must not be able to change a body word's size either. `GEO.absz` is the
+# opt-out for artwork where uneven body sizes really are acceptable.
+GEO['absz'] = bool(gate.get('allow_body_sz', False))
 total_entries = sum(len(v) for v in d.get(E, {}).values() if isinstance(v, dict))
 if total_entries == 0:
     sys.stderr.write('GATE FAIL %s %s: decision file has no entries under "%s".\n'
@@ -887,7 +894,10 @@ function processDoc(d){
         tf.contents=val;
         var tr=tf.textRange, fnt=findFont(FONT);
         if(fnt)try{tr.characterAttributes.textFont=fnt;}catch(e){}
-        var finalSz=sz!==null?sz:osz;
+        if(sz!==null&&sz!==undefined&&!GEO.absz){
+            log("BODY-SZ-IGNORED "+key+" sz="+sz+" kept="+osz.toFixed(2));
+        }
+        var finalSz=(GEO.absz&&sz!==null&&sz!==undefined)?sz:osz;
         /* BODY TEXT IS NEVER RESIZED (hard rule, enforced upstream too): only
            titles may change size. `sz` reaching here is null by contract (the
            gate rejects body sizes), so the word keeps the artwork's size and an

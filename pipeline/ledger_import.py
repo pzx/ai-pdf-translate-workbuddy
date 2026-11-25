@@ -8,7 +8,9 @@ engine decided. Idempotent - unchanged rows are ignored. Written changes are
 backed up first. Encodes all the D7 lessons:
   * columns located by HEADER NAME, not fixed index
   * \r <-> \n normalised both ways (xlsx turns soft returns into \n)
-  * changing a size back to the source value clears the override
+  * the 字号 column is READ-ONLY in effect: body type is fixed, so a size edit
+    is ignored and only counted in the closing note (only titles may resize, and
+    they are fitted to the oval by make_jsx)
   * title rows with colour=ALL fan out to every colour; title keys matched
     with newline normalisation
   * 中文 column feeds gloss JSON (words + per-cell overrides), from BOTH the
