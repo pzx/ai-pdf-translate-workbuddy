@@ -367,11 +367,13 @@ def _measure_lines(text, size):
     return out
 
 _one, _many = _source_title_sizes()
-# A two-line title may use at most this fraction of the oval's radius
-# (u = (x/a)^2+(y/b)^2 = 1 means touching the boundary). Bodies of two lines
-# reach the curved ends at BOTH outer edges, so they need a margin a single
-# line does not; without it the block looks like it is bursting out.
-TWO_FILL = float(g.get('title_two_fill', 0.90))
+# How much of the oval a two-line block may use: u=(x/a)^2+(y/b)^2 = 1 means
+# touching the boundary. Default 1.0 -- a title is NEVER shrunk just to buy a
+# margin (titles are the only text allowed to change size at all, and only
+# because the oval demands it). Asking for 0.9 keeps a visible margin but costs
+# 5% of the size, which reads as "the title got smaller"; that trade is opt-in
+# via config, not the default.
+TWO_FILL = float(g.get('title_two_fill', 1.0))
 GEO['t2f'] = TWO_FILL
 _PW, _PH = _pill_size()
 _A = _PW / 2.0                       # true half axes of the pill (no margin)
@@ -399,12 +401,10 @@ def _fits(text, size):
     generator picks is the size the artwork gets."""
     lines = str(text).replace('\n', '\r').split('\r')
     if len(lines) >= 2:
-        # Centred block: its outer corners are (widest line's end, block edge),
-        # so ONE test covers both lines -- and it must stop at TWO_FILL, not at
-        # 1.0. A block that merely touches the oval reads as "about to spill":
-        # "Necessidades" ended 0.2pt off the curve while the short second line
-        # floated inside, which is exactly the lopsided look that was reported.
-        # 0.9 of the radius leaves a visible margin all round.
+        # The block is centred on the oval, so its outer corners are (widest
+        # line's end, block edge) and ONE test covers both lines. Stopping at
+        # 1.0 means the source size is preserved whenever the block already
+        # fits; the size only comes down for a title that genuinely overflows.
         ws = _measure_lines(text, size)
         lead = float(GEO['lead']) * size / 18.0
         block_h = GEO['capr'] * size + (len(lines) - 1) * lead
@@ -450,8 +450,10 @@ def _two_line_shift(text, size):
         return 0.0
     # OFF by default. Equalising the clearance does remove the crowding, but the
     # block then sits visibly low (top gap 8.4pt vs bottom 2.9pt) and reads as
-    # "text dropped into the pill". Centring + TWO_FILL is the look that holds:
-    # symmetric rhythm, and the wide line still has room at the ends.
+    # "text dropped into the pill". Centring the block on the oval is the look
+    # that holds: the two lines keep a symmetric rhythm, and the short line
+    # floating further from the curve is the honest read of an asymmetric
+    # title, not a fault to correct by shifting.
     d *= float(g.get('title_two_balance', 0.0))
     return round(max(-slack, min(slack, d)), 2)
 

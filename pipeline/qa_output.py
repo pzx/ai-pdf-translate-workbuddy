@@ -32,6 +32,7 @@ argv = sys.argv[1:]
 MIN = 10.0
 if '--min' in argv:
     MIN = float(argv[argv.index('--min') + 1])
+FILL = 1.0        # geometry.title_two_fill, read from the config below
 lang_only = argv[argv.index('--lang') + 1] if '--lang' in argv else None
 files = []
 if '--files' in argv:
@@ -44,6 +45,7 @@ EXPECT = {}
 if not explicit:
     from common import Config
     cfg = Config(None)
+    FILL = float(cfg.d.get('geometry', {}).get('title_two_fill', 1.0))
     # Map by EXACT product name, not by a colour-name substring: two colours can
     # share a substring, and a product template that omits the colour name would
     # silently never be page-checked.
@@ -151,14 +153,14 @@ def title_issues(page, pno):
                 worst = max(worst, ((px - cx) / a) ** 2 + ((py - cy) / b) ** 2)
         if worst > 1.02:
             out.append(('TITLE-POUT', pno, 'row%d %.2f of the oval' % (i + 1, worst)))
-        elif worst > 0.96 and len(rows) >= 2:
-            # Inside the oval but with no margin: a two-line block that merely
-            # touches the curve is what "looks like it is about to spill"
-            # reads as. The generator aims at title_two_fill (0.90) for
-            # multi-line blocks; anything this close means a hand-edited
-            # decision or a differently shaped pill. Single-line titles are
-            # deliberately allowed right up to the boundary, so they are not
-            # reported here.
+        elif worst > FILL + 0.02 and len(rows) >= 2:
+            # Inside the oval but past the margin the config asks for. With the
+            # default title_two_fill = 1.0 this can never fire (1.0 + 0.02 is
+            # already the TITLE-POUT ceiling) -- it only speaks when a project
+            # has deliberately opted into a margin, in which case a block this
+            # close means a hand-edited decision or a differently shaped pill.
+            # Single-line titles are allowed right up to the boundary, so they
+            # are never reported here.
             out.append(('TITLE-TIGHT', pno, 'row%d %.2f of the oval' % (i + 1, worst)))
     return out
 
@@ -215,8 +217,8 @@ for f in files:
         print('      ... %d more' % (len(hits) - 12))
 
 if warns:
-    print('\n%d title(s) inside the pill but with no margin left '
-          '(aim for title_two_fill):' % len(warns))
+    print('\n%d title(s) inside the pill but past the configured margin '
+          '(title_two_fill = %.2f):' % (len(warns), FILL))
     for w in warns[:10]:
         print('      %-40s p%-3d %s' % (w[0][:40], w[1], w[2]))
 print('\n%d file(s) checked, %d problem(s) (page-number clearance %.1fpt)'

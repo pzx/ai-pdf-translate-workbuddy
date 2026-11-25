@@ -181,8 +181,8 @@
     },
     "lead_at_18": 17.9,
     "ellipse_margin": 1.0,
-    "_title_two_comment": "TWO-LINE titles only. title_two_fill = the share of the oval's radius a multi-line block may use, where (x/a)^2+(y/b)^2 = 1 means touching the boundary. 0.90 keeps a visible margin all round; 1.0 lets the block touch the curve, which reads as 'about to spill' because the wide line reaches the curved ends at BOTH outer edges. title_two_balance = how much of the clearance-equalising downward shift to apply (0 = keep the block geometrically centred, which is the look that holds; 1 = equalise the corner clearance of the two lines, which fixes crowding but drops the block visibly low).",
-    "title_two_fill": 0.9,
+    "_title_two_comment": "TWO-LINE titles only. title_two_fill = the share of the oval's radius a multi-line block may use, where (x/a)^2+(y/b)^2 = 1 means touching the boundary. 1.0 (default) never shrinks a title that already fits -- the block is centred on the oval and the lines are judged one by one, so a widest line may reach the curve at its own height and no further. Lower it only if you deliberately want a margin and accept the title getting smaller (0.9 costs ~5% of the size). title_two_balance = how much of the clearance-equalising downward shift to apply (0 = keep the block geometrically centred, which is the look that holds; 1 = equalise the corner clearance of the two lines, which fixes crowding but drops the block visibly low).",
+    "title_two_fill": 1.0,
     "title_two_balance": 0.0,
     "ellipse_w_range": [
       80,
