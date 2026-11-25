@@ -31,6 +31,10 @@ d = __import__('common').load_dec(cfg, lang, color)
 S = cfg.s
 E, V, SZ = S['entries'], S['value'], S['size_override']
 FONT = cfg.font_for(lang)
+# Title band: everything whose text bottom sits above this many points from the
+# page top is treated as a title. 62 fits the card deck; a taller/full-page
+# layout must raise it (layout.title_band_pt).
+TITLE_BAND = float((cfg.d.get('layout') or {}).get('title_band_pt', 62))
 
 # R1 font resolution: Illustrator's app.textFonts[i].name is NOT always the
 # Windows family+style string from config (a family/style name may silently
@@ -41,11 +45,8 @@ FONT = cfg.font_for(lang)
 # instead of silently leaving the source artwork's font in place.
 def _font_candidates():
     names = [FONT]
-    ff = None
-    for L in cfg.d.get('languages', []):
-        if L.get('code') == lang and L.get('font_file'):
-            ff = L['font_file']
-            break
+    # called at import time, before _font_file() below is defined -> use Config directly
+    ff = cfg.resolve_font_file(lang, required=False)
     if ff and os.path.exists(ff):
         try:
             from fontTools.ttLib import TTFont
@@ -276,10 +277,9 @@ if 'titles' in d and _abs and _n_titles < max(_abs) + 1:
 # pick the largest single-line size at which every translated title still fits
 # the pill, and use the source's own two-line size for titles that must wrap.
 def _font_file():
-    for L in cfg.d.get('languages', []):
-        if L.get('code') == lang and L.get('font_file'):
-            return L['font_file']
-    return os.path.join(cfg.d.get('font_dir', 'C:/Windows/Fonts'), 'ARLRDBD.TTF')
+    # None is legal: FONTCANDS then stays empty and findFont falls back to the
+    # configured name alone (logged as FONT-MISS if nothing matches).
+    return cfg.resolve_font_file(lang, required=False)
 
 def _source_title_sizes():
     p = SPANS
@@ -291,7 +291,7 @@ def _source_title_sizes():
         if not t or t.isdigit():
             continue
         x0, y0, x1, y1 = s['bbox']
-        if y1 < 62 and s['size'] >= 14:          # title band, above the artwork
+        if y1 < TITLE_BAND and s["size"] >= 14:          # title band, above the artwork
             pages.setdefault(s['page'], []).append(round(float(s['size']), 2))
     one = sorted({v[0] for v in pages.values() if len(v) == 1}, reverse=True)
     many = sorted({v[0] for v in pages.values() if len(v) >= 2}, reverse=True)
@@ -356,7 +356,7 @@ if os.path.exists(_p):
         if not t or t.isdigit():
             continue
         x0, y0, x1, y1 = s['bbox']
-        if y1 < 62 and s['size'] >= 14:
+        if y1 < TITLE_BAND and s["size"] >= 14:
             _src_size.setdefault(t, []).append(round(float(s['size']), 2))
 _median = lambda a: sorted(a)[len(a) // 2]
 _book_single = _median([v[0] for v in _src_size.values()]) if _src_size else 22.0

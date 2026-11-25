@@ -8,7 +8,7 @@
   "xlsx_dir": "output/xlsx",
   "_batch_comment": "Batch/date of finished goods. Set per run via env BATCH_DATE or edit here. Ledgers are NOT dated - they always live in xlsx_dir.",
   "batch_date": "2026-11-20",
-  "_lang_comment": "code = decision-file code; name = the Chinese/canonical label shown in the ledger and used in product filenames; font = actual output font for that language. IMPORTANT: languages with regional variants must be confirmed with the user BEFORE building (see SKILL.md step 0) and listed as separate entries: Portuguese = ptbr (Brazil, onibus) vs ptpt (Europe, autocarro); Spanish = eses (Spain) vs esmx/esar (Latin America); English = enus/enuk; Chinese = zhcn/zhtw. Never collapse variants into one 'Portuguese'/'Spanish' entry - the translations differ word by word. Optional per-language 'font_file' gives the exact TTF path used by build_decisions.py to measure glyph widths (e.g. C:/Windows/Fonts/ARLRDBD.TTF); without it the script fuzzy-matches the font name in font_dir.",
+  "_lang_comment": "code = decision-file code; name = the Chinese/canonical label shown in the ledger and used in product filenames; font = actual output font for that language. IMPORTANT: languages with regional variants must be confirmed with the user BEFORE building (see SKILL.md step 0) and listed as separate entries: Portuguese = ptbr (Brazil, onibus) vs ptpt (Europe, autocarro); Spanish = eses (Spain) vs esmx/esar (Latin America); English = enus/enuk; Chinese = zhcn/zhtw. Never collapse variants into one 'Portuguese'/'Spanish' entry - the translations differ word by word. Optional per-language 'font_file' gives the exact TTF/OTF path used to measure glyph widths (absolute, or relative to 'base'; e.g. C:/Windows/Fonts/ARLRDBD.TTF). If omitted, the font is resolved by its INTERNAL name (family/full/PostScript) inside 'font_dir' - Windows file names like ARLRDBD.TTF do not contain the readable name, so this lookup reads the name table. If nothing matches, the scripts stop with a message telling you to set font_file. IMPORTANT: measuring MUST use the font that will actually be typeset in Illustrator, otherwise width/wrap decisions are wrong.",
   "default_font": "Arial Rounded MT Bold",
   "font_dir": "C:/Windows/Fonts",
   "languages": [
@@ -196,6 +196,7 @@
     "obstacle_nudge_cap": 0
   },
   "layout": {
+    "title_band_pt": 62,
     "body_thresh_pt": 135,
     "title_maxw_pt": 105,
     "wrap_space_pt": 26,

@@ -32,6 +32,60 @@ def find_config(explicit=None):
                      'and edit, or set PIPELINE_CONFIG.')
 
 
+def _norm_font_name(s):
+    return ''.join(ch for ch in str(s).lower() if ch.isalnum())
+
+
+_FONT_STYLES = ('extrabold', 'semibold', 'demibold', 'bold', 'semilight',
+                'extralight', 'light', 'medium', 'black', 'heavy', 'italic',
+                'oblique', 'regular', 'book', 'thin')
+
+_FONT_DIR_CACHE = {}
+
+
+def _font_face_index(fontdir):
+    """normalised font name -> file path, built once per directory.
+
+    Indexes family (1/16), style (2/17), full (4) and PostScript (6) names, so
+    a config value like "Arial Rounded MT Bold" resolves to ARLRDBD.TTF even
+    though the file name looks nothing like it.
+    """
+    dirpath = os.path.abspath(fontdir) if fontdir else ''
+    if not dirpath:
+        return {}
+    if dirpath in _FONT_DIR_CACHE:
+        return _FONT_DIR_CACHE[dirpath]
+    idx = {}
+    try:
+        from fontTools.ttLib import TTFont
+    except ImportError:
+        TTFont = None
+    if TTFont is not None and os.path.isdir(dirpath):
+        for fn in sorted(os.listdir(dirpath)):
+            if not fn.lower().endswith(('.ttf', '.otf', '.ttc')):
+                continue
+            p = os.path.join(dirpath, fn)
+            try:
+                f = TTFont(p, fontNumber=0, lazy=True)
+                names = set()
+                for rec in f['name'].names:
+                    if rec.nameID in (1, 2, 4, 6, 16, 17):
+                        try:
+                            v = rec.toUnicode()
+                        except Exception:
+                            continue
+                        if v:
+                            names.add(_norm_font_name(v))
+                f.close()
+            except Exception:
+                continue
+            for n in names:
+                if n:
+                    idx.setdefault(n, p)
+    _FONT_DIR_CACHE[dirpath] = idx
+    return idx
+
+
 class Config:
     def __init__(self, path=None):
         self.path = find_config(path)
@@ -93,6 +147,51 @@ class Config:
 
     def font_for(self, lang):
         return self.L[lang].get('font') or self.DEF_FONT
+
+    def resolve_font_file(self, lang, required=False):
+        """Path of the TTF/OTF used to measure and typeset one language.
+
+        Order: languages[].font_file (absolute, or relative to base) -> match the
+        font's INTERNAL name against font_dir -> None / SystemExit. Windows font
+        files carry legacy short names (ARLRDBD.TTF = Arial Rounded MT Bold), so
+        matching the file name is unreliable; we read each face's name table.
+        """
+        ent = self.L.get(lang) or {}
+        ff = ent.get('font_file')
+        if ff:
+            for cand in (ff, os.path.join(self.base, ff)):
+                if os.path.exists(cand):
+                    return cand
+        name = ent.get('font') or self.DEF_FONT
+        fontdir = self.d.get('font_dir') or 'C:/Windows/Fonts'
+        idx = _font_face_index(fontdir)
+        nm = _norm_font_name(name)
+        if nm in idx:
+            return idx[nm]
+        # "Family SemiBold" -> split off a trailing style word and retry
+        fam, style = nm, ''
+        for st in _FONT_STYLES:
+            if fam.endswith(st) and len(fam) > len(st):
+                fam, style = fam[:-len(st)], st
+                break
+        for cand in (fam + style, fam + 'regular', fam):
+            if cand in idx:
+                return idx[cand]
+        # family-only fallback: prefer the bold face of that family
+        hits = [(k, v) for k, v in idx.items() if k.startswith(fam)]
+        if hits:
+            for k, v in hits:
+                if 'bold' in k:
+                    return v
+            return hits[0][1]
+        if required:
+            raise SystemExit(
+                'No font file for lang %s (font=%r). Set languages[].font_file to the '
+                'TTF/OTF path, or install the font into %s.' % (lang, name, fontdir))
+        return None
+
+    def font_file_for(self, lang):
+        return self.resolve_font_file(lang, required=True)
 
     # ---- source metrics (font size per colour/page/word) --------------------
     @property

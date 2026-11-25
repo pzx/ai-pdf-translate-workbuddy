@@ -244,7 +244,7 @@ per_lang = {}
 overflows = {}
 shorted_list = {}
 for lang, lcfg in LANGS.items():
-    W = measurer(lcfg['font_file'])
+    W = measurer(cfg.font_file_for(lang))
     MAP_ALL = dict(D)
     for k, v in build_compound(lang).items():
         MAP_ALL[k] = {lang: v}

@@ -84,7 +84,8 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 | `layout` | 正文字宽预算：`body_thresh_pt`（槽可用宽）、`title_maxw_pt`（无椭圆时的标题上限）、`wrap_space_pt`（折行所需下方空间）、`min_scale`（正文最小字号系数）；被 `build_width_tables.py` 使用 |
 | `geometry_export` | 换版型时导出几何的对象分类门限（label/frame/title/illus/inner 尺寸区间、插图方向、`title_band_ratio`）——见「换版型闭环」|
 | `decision_engine` | 决策求解阈值（最小间距、位移上限、行距等，punkt）；新项目一般沿用默认 |
-| `font_dir` / `languages[].font_file` | 决策引擎按字体量字宽：优先用 font_file 精确指定 TTF，否则在 font_dir 里按字体名模糊匹配 |
+| `layout.title_band_pt` | 标题带高度：文字底边距页顶小于该值视为标题（默认 62，适合卡片；整页/海报版式需调大，否则读不到标题字号） |
+| `font_dir` / `languages[].font_file` | 决策引擎按字体量字宽：优先用 font_file 精确指定 TTF/OTF（绝对路径或相对 `base`）；不填则按字体**内部名称**（family/full/PostScript）在 `font_dir` 解析——Windows 文件名是 `ARLRDBD.TTF` 这类短码，所以读 name 表而不是猜文件名。解析不到会明确报错并提示配 font_file。**量字宽必须用 Illustrator 实际排版的那个字体**，否则宽度/折行判断全是错的 |
 | `gate.require_sz` | 决策闸门：cx 强制必填；sz 默认可选，仅当引擎保证每条都写 sz 时才设 true |
 
 `files.*` 模板可用占位符：`{no} {color_code} {color_name} {lang_code} {lang_name} {base} {work} {batch}`。

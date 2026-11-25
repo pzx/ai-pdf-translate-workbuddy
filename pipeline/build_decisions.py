@@ -34,21 +34,8 @@ S = cfg.s
 
 
 def font_file(lang):
-    """Resolve a TTF path from languages[].font_file, else fuzzy name match."""
-    ent = cfg.L[lang]
-    ff = ent.get('font_file')
-    if ff and os.path.exists(ff):
-        return ff
-    name = ent.get('font') or cfg.DEF_FONT
-    # Windows: scan Fonts dir for a file whose internal name matches
-    base = name.lower().replace(' ', '').replace('-', '')
-    fontdir = cfg.d.get('font_dir', 'C:/Windows/Fonts')
-    if os.path.isdir(fontdir):
-        for fn in os.listdir(fontdir):
-            if fn.lower().endswith(('.ttf', '.otf')) and base[:6] in fn.lower().replace(' ', ''):
-                return os.path.join(fontdir, fn)
-    raise SystemExit('No font file for lang %s (font=%s). Set languages[].font_file '
-                     'in pipeline.json.' % (lang, name))
+    """Resolve the font file for width measurement (see Config.resolve_font_file)."""
+    return cfg.font_file_for(lang)
 
 
 def load_translations():
