@@ -48,8 +48,10 @@ $null = $ai.DoJavaScriptFile("G:\\path\\to\\script.jsx")   # 返回值常为 und
 
 ## 转曲导出（outline_export_template.jsx）
 
-- **只在副本上转曲**：打开翻译后的 .ai → 解锁全部图层/对象（`layers[i].locked=false`，`pageItems` 遍历
-  `locked/hidden=false`）→ `textFrames[i].createOutline()` **倒序遍历**（createOutline 替换原对象，正序会索引错位）
+- **只在副本上转曲**：打开翻译后的 .ai → **只把 `layers[i].locked=false` 和文本框的 `locked=false`**，
+  **绝不碰 `visible` / `hidden`**——把隐藏对象显示出来会带出源稿的裁切辅助标记，转曲后变成红黑线框（用户不允许出现红框）。
+  也不要遍历全部 `pageItems`（两万个对象的 COM 调用要几分钟），解锁图层+文本框足够 →
+  `textFrames[i].createOutline()` **倒序遍历**（createOutline 替换原对象，正序会索引错位）
 - 导出 PDF：`PDFSaveOptions` 设 `preserveEditability=false`（try/catch 包住，旧版无此属性），全画板多页
 - 范围是**所有画板全部文字**（含页码、数字等未翻译对象），不止本次替换的词
 - 置入内容（placed PDF 等）可能含独立字体文本，脚本够不到的要如实报告
