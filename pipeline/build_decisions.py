@@ -54,6 +54,11 @@ def load_tuning():
 
 
 TUNE = load_tuning()
+# HARD RULE: body type is fixed -- only a card title may change size. The
+# decision layer therefore never writes `sz` for a label unless a project
+# explicitly opts in (gate.allow_body_sz). make_jsx.py and qa_prebuild.py
+# enforce the same rule downstream, so a stray `sz` cannot reach the artwork.
+ALLOW_BODY_SZ = bool((cfg.d.get('gate') or {}).get('allow_body_sz', False))
 # R4: persistent hand-edit position corrections.  Keyed by "<ab>|<english key>"
 # under lang->color. Applied at write time so a clean rebuild reproduces the
 # reviewer's placement without any manual patch to the generated decisions.
@@ -66,6 +71,9 @@ SIZEFIX = {}
 for _lang, _items in TUNE.get('sizefix', {}).items():
     for _en, _sz in _items.items():
         SIZEFIX[(_lang, _en)] = _sz
+if SIZEFIX and not ALLOW_BODY_SZ:
+    print('NOTE tuning.sizefix is ignored: body type is fixed (only titles may '
+          'change size). Set gate.allow_body_sz=true to override.')
 COMPOUND = TUNE.get('compound', {})
 MANUAL_TITLES = TUNE.get('titles', {})
 
@@ -74,10 +82,8 @@ MANUAL_TITLES = TUNE.get('titles', {})
 P = cfg.d.get('decision_engine', {})
 MM = float(P.get('min_gap_pt', 2 / 25.4 * 72))
 IGH = float(P.get('inter_label_gap_pt', 10.5))
-GAP_OWN = float(P.get('own_illus_gap_pt', 1.0))
 DX_MAX = float(P.get('shift_cap_pt', 8.0))
 COL_RATIO = float(P.get('column_ratio', 0.25))
-UP_MAX = float(P.get('wrap_lift_cap_pt', 12.0))
 RELAX_DX = float(P.get('relax_shift_pt', 26.0))
 BASE_SIZE = float(P.get('base_size', 18.0))
 LEAD_EXTRA = float(P.get('lead_extra_pt', 1.0))
@@ -207,6 +213,7 @@ def solve_book(lang, color):
     tr, line_w, wrap2 = eng['tr'], eng['line_w'], eng['wrap2']
     title_map, ink, pages = eng['title_map'], eng['ink'], eng['pages']
     abbr_value = eng['abbr']
+    PENDING = []          # created before the guards so they can report into it
     span_sizes = {}
     for _s in cfg.spans.get(color, []):
         _t = (_s.get('text') or '').strip()
@@ -219,15 +226,31 @@ def solve_book(lang, color):
     # decision still gets a cx, make_jsx "replaces" the word with itself, and
     # the PDF passes verify.py (pages ok, text=0) while being untranslated.
     # Refuse to build a book the translation table does not cover.
+    def _has(en):
+        """True when THIS language has a non-empty value for the key.
+
+        An entry that exists but lacks the language (or holds whitespace) is
+        just as broken as a missing entry -- it used to be reported as
+        "intentionally keeps the English text", which hid real gaps.
+        """
+        for k in (en, str(en).split('\r')[0]):
+            v = T.get(k)
+            if isinstance(v, str) and v.strip():
+                return True
+            if isinstance(v, dict) and str(v.get(lang) or '').strip():
+                return True
+        return False
+
     _all_en = {l['en'] for pg in pages.values() for l in pg['labels']}
-    _miss = sorted(e for e in _all_en
-                   if T.get(e) is None and T.get(str(e).split('\r')[0]) is None)
+    _miss = sorted(e for e in _all_en if not _has(e))
     if _miss:
         _rate = len(_miss) / max(1, len(_all_en))
-        print('  TRANS-MISSING %s/%s: %d/%d label(s) have no entry (%.0f%%)'
-              % (lang, color, len(_miss), len(_all_en), _rate * 100))
+        print('  TRANS-MISSING %s/%s: %d/%d label(s) have no %s value (%.0f%%)'
+              % (lang, color, len(_miss), len(_all_en), lang, _rate * 100))
         for _e in _miss[:15]:
             print('    - %r' % _e)
+        for _e in _miss[:15]:
+            PENDING.append('TR-MISS %s/%s %r (add "%s")' % (lang, color, _e, lang))
         if _rate > 0.10:
             raise SystemExit(
                 'REFUSED: translation table covers only %.0f%% of %s/%s. '
@@ -270,7 +293,7 @@ def solve_book(lang, color):
                 '  so the lift budgets would all be 0 and bottom rows would be short-translated.'
                 % (lang, color, _r2 * 100))
 
-    DEC, TITLES, SHORT_USED, PENDING, REPORT = {}, {}, {}, [], []
+    DEC, TITLES, SHORT_USED, REPORT = {}, {}, {}, []
     for ab, pg in pages.items():
         if not pg['labels']:
             continue
@@ -340,7 +363,7 @@ def solve_book(lang, color):
                 continue          # the band is emitted as "<en>#abbr" below
             state[l['en']] = {'val': tr(l['en']), 'cx': l['cx'], 'dy': 0.0,
                               'illdy': 0.0, 'rowdy': 0.0, 'mode': 'keep'}
-            if (lang, l['en']) in SIZEFIX:
+            if ALLOW_BODY_SZ and (lang, l['en']) in SIZEFIX:
                 state[l['en']]['sz'] = SIZEFIX[(lang, l['en'])]
 
         # Per-label lift budget for a TWO-LINE rewrite (make_jsx consumes it):
@@ -354,8 +377,6 @@ def solve_book(lang, color):
         # Facts come from geomlib (_attach_facts) -- row id, own art box, the
         # text-only clearance, the bottom-row flag and the head-room above the
         # art. Deriving them here again is what produced the inverted-sign bug.
-        OGAP_PT = float(P.get('obstacle_gap_pt', 2.0))
-        BOTTOM_ROW_PT = float(P.get('bottom_row_pt', 60.0))
         ILLBOX, ILLMETA, ROWS = {}, {}, {}
         for _l in labels:
             _f = _l.get('facts') or {}
@@ -480,7 +501,7 @@ def solve_book(lang, color):
                 _v2 = violations(en, box_of(l, cx, val, 0.0), ob)
                 if not _v2:
                     return cx, 0.0
-                if os.environ.get('DEBUG_LABEL') == en and 1188 <= cx <= 1200:
+                if os.environ.get('DEBUG_LABEL') == en:
                     print('   single-try mx=%.0f cx=%.1f -> %s' % (mx, cx, _v2))
             return None
 
@@ -626,7 +647,7 @@ def solve_book(lang, color):
                     if got:
                         st.update(val=sv, cx=got[0], dy=got[1], mode='short')
                         SHORT_USED.setdefault(str(ab), {})[en] = sv; changed = True; continue
-                fsz = SIZEFIX.get((lang, en))
+                fsz = SIZEFIX.get((lang, en)) if ALLOW_BODY_SZ else None
                 if fsz:
                     l = [x for x in labels if x['en'] == en][0]
                     k = fsz / BASE_SIZE
@@ -776,31 +797,51 @@ def solve_book(lang, color):
                   max(pn['box'][1], pn['box'][3]),
                   min(pn['box'][1], pn['box'][3])]
             pL, pTop, pBot = pB
-            _order = sorted(state.items(),
-                            key=lambda kv: kv[1]['cx'])
-            _done = []                      # (right_edge, left_edge) shifted already
+            # CURRENT box of every label, recomputed once: the nudge budget has
+            # to account for neighbours that were never moved themselves (the
+            # old loop only knew about labels it had already shifted, so it
+            # happily pushed a word onto its left neighbour).
+            geo = {}
+            for _en, _st in state.items():
+                _lo = [x for x in labels if x['en'] == _en]
+                if not _lo:
+                    continue
+                _lo = _lo[0]
+                _k = (_st.get('sz') or BASE_SIZE) / BASE_SIZE
+                _w = line_w(_st['val']) * _k
+                _h = h1_of(_lo) + (lead if '\r' in _st['val'] else 0.0)
+                _top = _lo['box'][1] + _st['dy'] + float(_st.get('rowdy') or 0.0)
+                # A reviewer's hand-edit (tuning.pos) is written at emit time, so
+                # the neighbour really ends up dx further away. Without it the
+                # budget saw the old position and stopped 7.5pt short on
+                # "cadeira de rodas" (the tuning that had been added exactly to
+                # make room for it).
+                _pdx = POS.get((lang, color, '%d|%s' % (ab, _en)))
+                _cx = _st['cx'] + (float(_pdx.get('dx', 0)) if _pdx else 0.0)
+                geo[_en] = (_cx - _w / 2, _cx + _w / 2, _top, _top - _h)
+
+            _order = sorted(state.items(), key=lambda kv: kv[1]['cx'])
             for en, st in _order:
                 if st.get('mode') == 'manual':
                     continue
-                lo = [x for x in labels if x['en'] == en]
-                if not lo:
+                L, R, top, bot = geo[en]
+                # A two-line block is TALLER than the page number's own box, so
+                # the old "must be fully inside the number's band" test skipped
+                # exactly the wrapped words that need the clearance most. Any
+                # vertical overlap counts.
+                if bot >= pTop or top <= pBot:
                     continue
-                lo = lo[0]
-                k = (st.get('sz') or BASE_SIZE) / BASE_SIZE
-                w = line_w(st['val']) * k
-                h = h1_of(lo) + (lead if '\r' in st['val'] else 0.0)
-                top = lo['box'][1] + st['dy'] + float(st.get('rowdy') or 0.0)
-                bot = top - h
-                if not (top > pBot and bot < pTop):     # not on the number's row
-                    continue
-                L, R = st['cx'] - w / 2, st['cx'] + w / 2
                 need = R - (pL - PN_GAP)
                 if need <= 0.2:        # already clear (sub-0.2pt = rounding)
                     continue
                 room = PN_SHIFT_CAP
-                for (nr, _nl) in _done:                 # left neighbour already moved
-                    if nr <= L + 0.5:
-                        room = min(room, L - (nr + MM))
+                for _oe, (_ol, _or, _ot, _ob) in geo.items():
+                    if _oe == en:
+                        continue
+                    if _ob >= top or _ot <= bot:        # another row
+                        continue
+                    if _or <= L + 0.5:                  # it limits how far left we may go
+                        room = min(room, L - (_or + MM))
                 shift = min(need, room)
                 if shift < need - 0.1:
                     print('PN-TIGHT %s/%s ab%d %r need=%.1f only=%.1f '
@@ -812,8 +853,8 @@ def solve_book(lang, color):
                     continue
                 st['cx'] = round(st['cx'] - shift, 1)
                 st['pnfix'] = 1
+                geo[en] = (L - shift, R - shift, top, bot)
                 print('PN-SHIFT %s/%s ab%d %r dx=-%.1f' % (lang, color, ab, st['val'], shift))
-                _done.append((st['cx'] + w / 2, st['cx'] - w / 2))
 
         dec = {}
         for en, st in state.items():
@@ -828,7 +869,7 @@ def solve_book(lang, color):
                 d['cx'] = round(d['cx'] + float(_pd.get('dx', 0)), 1)
                 d['dy'] = round(d['dy'] + float(_pd.get('dy', 0)), 1)
                 d['posfix'] = 1
-            if st.get('sz'):
+            if st.get('sz') and ALLOW_BODY_SZ:
                 d['sz'] = st['sz']
             if st.get('pnfix'):
                 d['pnfix'] = 1
@@ -863,7 +904,10 @@ def solve_book(lang, color):
                     _k = '%s@%d' % (en, _i)
                     _v = tr(_k)
                     _rec = dict(d)
-                    _rec['cx'] = round(_x, 1)
+                    # keep the reviewer's hand-edit: the variant's own x plus the
+                    # same delta (this used to overwrite the adjusted cx, so a
+                    # tuned homograph silently jumped back)
+                    _rec['cx'] = round(_x + (float(_pd.get('dx', 0)) if _pd else 0.0), 1)
                     if _v != _k:                 # explicit "short@2" in the table
                         _rec['val'] = _v
                     _rec['dupidx'] = _i
@@ -907,6 +951,14 @@ def solve_book(lang, color):
     if _bad:
         raise SystemExit('REFUSED %s/%s: mode=wrap without a line break in %s'
                          % (lang, color, _bad[:5]))
+    # same idea for the size rule: a body font size in the decisions would be
+    # honoured by make_jsx and shrink one word out of a card
+    _badsz = [en for ab, it in _chk['dec'].items() for en, r in it.items()
+              if r.get('sz') is not None] if not ALLOW_BODY_SZ else []
+    if _badsz:
+        raise SystemExit('REFUSED %s/%s: body font size override on %s '
+                         '(only titles may change size)'
+                         % (lang, color, _badsz[:5]))
     ncx = sum(1 for a in DEC.values() for r in a.values() if r.get('cx') is not None)
     tot = sum(len(a) for a in DEC.values())
     print('\n'.join(REPORT))

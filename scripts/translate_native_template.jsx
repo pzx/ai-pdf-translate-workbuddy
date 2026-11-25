@@ -31,8 +31,11 @@ var MAP = {
 
 /* 每个原文对象的墨迹宽度上限（pt）。必须先从源文件几何实测：
    硬容器（胶囊/按钮）= 容器宽 - 两侧边距；开放区域 = 词带内到邻近插画的对称可用宽。
-   译文墨迹超过上限必须自动缩字号，绝不允许溢出容器（用户硬性要求）。
-   缺 key 时该对象不收缩（仅用于确认过不会溢出的对象）。 */
+   只有【标题】超限才缩字号（硬约束：正文一律不缩，个别词变小一眼就能看出来）；
+   正文超限只记 BODY-OVERFLOW，交给改词/折行/让位。
+   缺 key 时该对象不做任何处理（仅用于确认过不会溢出的对象）。 */
+/* 标题判定：源字号 >= 该阈值。卡片系列标题 22pt / 正文 18pt，故默认 19。 */
+var TITLE_MINSZ = 19;
 var MAXW = {
     "Letters":   95,
     "apple":     171.6,
@@ -60,8 +63,9 @@ function writeLog() {
 
 /* 替换单个 textFrame：恢复原字体/字号/颜色/对齐，并用 visibleBounds 中心回补，
    使新文字可见边界中心与原文字重合（误差目标 <=1pt），长译文不偏移。
-   ⚠️ 防溢出政策：译文墨迹宽超过 MAXW[key] 必须按比例缩字号（迭代两轮收敛，
-   每轮以当前字号为基数），缩完再水平回中。容器几何测量方法见 MAXW 注释。 */
+   ⚠️ 防溢出政策：只有标题（源字号 >= TITLE_MINSZ）超宽才按比例缩字号（迭代两轮，
+   每轮以当前字号为基数），缩完再回中；正文超宽只记 BODY-OVERFLOW，字号不动。
+   容器几何测量方法见 MAXW 注释。 */
 function replaceInDoc(doc) {
     var count = 0;
     for (var i = 0; i < doc.textFrames.length; i++) {
@@ -106,7 +110,17 @@ function replaceInDoc(doc) {
            必须把墨迹垂直中心回补到原文字的墨迹垂直中心（ocy）——
            否则缩得越多文字越偏下（德语 Buchstaben 16.4pt 偏下就是这个问题）。 */
         var maxw = MAXW[key];
-        if (maxw && sz) {
+        if (maxw && sz && sz < TITLE_MINSZ) {
+            /* body label: NEVER resize. Report and let a human reword it. */
+            try {
+                var vbb = tf.visibleBounds;
+                var wbb = vbb[2] - vbb[0];
+                if (wbb > maxw + 0.5) {
+                    log("  BODY-OVERFLOW " + key + " w=" + Math.round(wbb * 10) / 10 +
+                        " maxw=" + maxw + " (kept " + sz + "pt: body size is fixed)");
+                }
+            } catch (eB) {}
+        } else if (maxw && sz) {
             var cur = sz;
             var shrank = false;
             for (var pass = 0; pass < 2; pass++) {
@@ -117,7 +131,7 @@ function replaceInDoc(doc) {
                         cur = Math.max(6, cur * maxw / w);
                         nw.characterAttributes.size = cur;
                         shrank = true;
-                        log("  shrink: " + MAP[key] + " -> " + Math.round(cur * 10) / 10 + "pt");
+                        log("  shrink(title): " + MAP[key] + " -> " + Math.round(cur * 10) / 10 + "pt");
                     } else { break; }
                 } catch (eF) { break; }
             }

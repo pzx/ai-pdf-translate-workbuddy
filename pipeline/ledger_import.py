@@ -75,6 +75,7 @@ for l in cfg.langs:
     if not cid_c or not val_c:
         print('  ! %s has no ID/译文 column' % lname); continue
     rows = 0
+    sz_ignored = 0
     for r in range(2, ws.max_row + 1):
         cid = ws.cell(row=r, column=cid_c).value
         if not cid or not isinstance(cid, str) or cid.count('|') < 3:
@@ -113,23 +114,17 @@ for l in cfg.langs:
             print('  ~ %s/%s ab%s %r: %r -> %r' % (lang, color, ab, key, rec.get(V), newval))
             if not dry:
                 backup(p); rec[V] = newval; changed += 1
+        # 字号 is a read-only column now: body type is fixed for the whole card
+        # and titles are fitted to their oval by the JSX. Writing sz here used to
+        # shrink one word out of a page -- exactly the asymmetry the cards avoid.
         if newsz is not None:
-            cur = rec.get(SZ)
-            # "#abbr" rows (small-form role of the same English string) are
-            # sized by their OWN source size; without this the round trip wrote
-            # an sz override equal to the source size on every import
-            base = rec.get('szsrc') or cfg.src_size(color, key, ab)
-            if abs(newsz - base) < 0.05:
-                if cur is not None:
-                    print('  ~ %s/%s ab%s %r size: %s -> source %.1f' % (lang, color, ab, key, cur, base))
-                    if not dry:
-                        backup(p); rec.pop(SZ, None); changed += 1
-            elif cur is None or abs(float(cur) - newsz) > 0.05:
-                print('  ~ %s/%s ab%s %r size: %s -> %.1f' % (lang, color, ab, key, cur or base, newsz))
-                if not dry:
-                    backup(p); rec[SZ] = newsz; changed += 1
+            cur = rec.get(SZ) or rec.get('szsrc') or cfg.src_size(color, key, ab)
+            if abs(float(newsz) - float(cur)) > 0.05:
+                sz_ignored += 1
         rows += 1
-    print('  %-10s rows=%d' % (lname, rows))
+    print('  %-10s rows=%d%s' % (lname, rows,
+                                 '' if not sz_ignored else
+                                 '  (ignored %d size edit(s): body type is fixed)' % sz_ignored))
 
 # -- 中文 column -> gloss (language sheets + comparison) ----------------------
 zh_sheets = [l['name'] for l in cfg.langs if l['name'] in wb.sheetnames]

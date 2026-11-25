@@ -29,20 +29,27 @@ from common import Config, load_dec
 cfg = Config(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else None)
 LAYOUT = '--layout' in sys.argv
 OUT = os.path.join(cfg.output, cfg.batch, 'pdf')
-pdfs = sorted(glob.glob(os.path.join(OUT, '*.pdf')))
 S = cfg.s
 E, V, SZ = S['entries'], S['value'], S['size_override']
 
 print('%-46s %5s %7s %9s' % ('file', 'pages', 'text', 'size MB'))
 bad = 0
+# Completeness first: the old version globbed whatever existed, so a book that
+# was never produced simply vanished from the report and the run still passed.
+EXPECT = {cfg.product_paths(l['code'], c['code'])[1]: (l['code'], c['code'], c['pages'])
+          for l in cfg.langs for c in cfg.colors}
+missing = sorted(p for p in EXPECT if not os.path.exists(p))
+pdfs = sorted(p for p in EXPECT if os.path.exists(p))
+extra = sorted(set(glob.glob(os.path.join(OUT, '*.pdf'))) - set(EXPECT))
+for p in missing:
+    lc, cc, _pg = EXPECT[p]
+    bad += 1
+    print('%-46s    --  MISSING (%s/%s)' % (os.path.basename(p)[:46], lc, cc))
 for p in pdfs:
     d = pymupdf.open(p)
     txt = sum(len(d[i].get_text().strip()) for i in range(len(d)))
     name = os.path.basename(p)
-    exp = None
-    for c in cfg.colors:
-        if c['name'] in name:
-            exp = c['pages']; break
+    exp = EXPECT[p][2]
     flag = ''
     if txt:
         bad += 1; flag += ' !LIVE-TEXT'
@@ -50,7 +57,11 @@ for p in pdfs:
         bad += 1; flag += ' !PAGES(exp %s)' % exp
     print('%-46s %5d %7d %9.1f%s' % (name[:46], len(d), txt, os.path.getsize(p)/1e6, flag))
     d.close()
-print('files=%d  with-issues=%d' % (len(pdfs), bad))
+if extra:
+    print('note: %d pdf(s) in %s do not match any configured product (ignored): %s'
+          % (len(extra), OUT, ', '.join(os.path.basename(x) for x in extra[:5])))
+print('expected=%d  found=%d  missing=%d  with-issues=%d'
+      % (len(EXPECT), len(pdfs), len(missing), bad))
 
 warn = 0
 if LAYOUT:

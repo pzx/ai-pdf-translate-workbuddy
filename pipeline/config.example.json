@@ -97,9 +97,10 @@
     "titles": "title_map",
     "ab_is_zero_based": true
   },
-  "_gate_comment": "Decision completeness gate. cx (target horizontal centre measured from the source artwork) is ALWAYS required: without it the JSX skips centring and outputs misaligned words. sz is optional by default because a missing sz means 'keep the source font size' (the reference book has 0/145 explicit sz); set require_sz=true ONLY if your decision engine always writes explicit sizes.",
+  "_gate_comment": "Decision completeness gate. cx (target horizontal centre measured from the source artwork) is ALWAYS required: without it the JSX skips centring and outputs misaligned words. sz is not required AND is rejected for body labels: only a card title may change size (titles are fitted to their oval by the JSX, never taken from `sz`). Set allow_body_sz=true only for artwork where uneven body sizes are acceptable -- it also unlocks tuning.sizefix. require_sz=true forces every entry to carry sz (i.e. it requires allow_body_sz as well).",
   "gate": {
-    "require_sz": false
+    "require_sz": false,
+    "allow_body_sz": false
   },
   "_jsx_comment": "JSX generator settings. generator is a command template receiving lang/color; runner is the PowerShell batch script.",
   "jsx": {
@@ -153,15 +154,13 @@
   "decision_engine": {
     "min_gap_pt": 5.669,
     "inter_label_gap_pt": 10.5,
-    "own_illus_gap_pt": 1.0,
     "shift_cap_pt": 8.0,
     "column_ratio": 0.25,
-    "wrap_lift_cap_pt": 12.0,
     "relax_shift_pt": 26.0,
     "base_size": 18.0,
     "lead_extra_pt": 1.0
   },
-  "_decision_tuning_comment": "OPTIONAL project-specific fixes, file named by files.decision_tuning. A new project may leave it empty - the engine still produces full cx/dy/sz. Format: {short:{lang:{en:val}}, sizefix:{lang:{en:pt}}, compound:{...}, titles:{lang:{en:val}}, pos:{lang:{color:{'<ab>|<en>':{dx,dy}}}}}. 'pos' holds reviewer hand-edit shifts (from a manual-vs-generated span diff) applied to cx/dy at write time, so a clean rebuild reproduces hand placement.",
+  "_decision_tuning_comment": "OPTIONAL project-specific fixes, file named by files.decision_tuning. A new project may leave it empty - the engine still produces full cx/dy/sz. 'pos' holds reviewer hand-edit shifts applied to cx/dy at write time, so a clean rebuild reproduces hand placement; key is '<ab>|<en>'. NOTE: sizefix is IGNORED unless gate.allow_body_sz=true (body type is fixed). Format: {short:{lang:{en:val}}, sizefix:{lang:{en:pt}}, compound:{...}, titles:{lang:{en:val}}, pos:{lang:{color:{'<ab>|<en>':{dx,dy}}}}}.",
   "_vector_text_comment": "Labels drawn as OUTLINED vector paths have no text layer, so export_spans cannot find them and they would ship untranslated. Declare each here: color, page (1-based), en (translation-table key), box=[x0,y0,x1,y1] in ILLUSTRATOR EXPANDED coords (diagnose by listing groupItems matching the label area), size. make_jsx deletes the matching group(s) and typesets the translation in place. Leave [] if the artwork has no outlined text.",
   "vector_text": [],
   "_vector_text_engine_comment": "Tuning for locating an outlined label's group and choosing a body-label frame as the replacement template. Defaults suit an 18pt-label deck; change to match your artwork's body size. center_tol_pt/size_tol_pt: bbox match tolerances. template_size_min_pt/max_pt: acceptable body font size when picking a template frame.",
@@ -171,10 +170,10 @@
     "template_size_min_pt": 16.5,
     "template_size_max_pt": 19.5
   },
-  "_geometry_comment": "Layout constraints injected into the JSX. Values below are proven on the D7 book; tune per source artwork. title_fit: shrink+centre titles inside the real ellipse (found by scanning pathItems). Word overflow is already pre-computed into each decision's sz by the decision engine; ink_bounds_words makes the JSX re-measure ink instead of visibleBounds (slower but more accurate). Obstacles: decision JSON may carry 'obstacles' per artboard as [[x0,y0,x1,y1],...]; ocap=0 only WARNS in the log, >0 nudges upward by at most that many points. Keep ocap=0 if your decision engine already resolved collisions.",
+  "_geometry_comment": "Layout constraints injected into the JSX. Values below are proven on the D7 book; tune per source artwork. title_fit: shrink+centre titles inside the real ellipse (found by scanning pathItems). Word overflow is REPORTED only (BODY-OVERFLOW in the log) -- body type is never resized. ink_bounds_words makes the JSX re-measure ink instead of visibleBounds (slower but more accurate). Obstacles: decision JSON may carry 'obstacles' per artboard as [[x0,y0,x1,y1],...]; ocap=0 only WARNS in the log, >0 moves the label down (away from the art above it) by at most that many points. Keep ocap=0 if your decision engine already resolved collisions. title_wrap_size: font size used when a title must take two lines (default = the source's own two-line title size).",
   "geometry": {
     "title_fit": true,
-    "title_wrap_ratio": 0.7,
+    "title_wrap_size": 16.1,
     "ink_bounds_words": false,
     "cap_ratio_default": 0.728,
     "cap_ratio_by_lang": {
@@ -182,6 +181,9 @@
     },
     "lead_at_18": 17.9,
     "ellipse_margin": 1.0,
+    "_title_two_comment": "TWO-LINE titles only. title_two_fill = the share of the oval's radius a multi-line block may use, where (x/a)^2+(y/b)^2 = 1 means touching the boundary. 0.90 keeps a visible margin all round; 1.0 lets the block touch the curve, which reads as 'about to spill' because the wide line reaches the curved ends at BOTH outer edges. title_two_balance = how much of the clearance-equalising downward shift to apply (0 = keep the block geometrically centred, which is the look that holds; 1 = equalise the corner clearance of the two lines, which fixes crowding but drops the block visibly low).",
+    "title_two_fill": 0.9,
+    "title_two_balance": 0.0,
     "ellipse_w_range": [
       80,
       150
@@ -195,20 +197,24 @@
     "obstacle_gap": 2.0,
     "obstacle_nudge_cap": 0
   },
+  "_layout_comment": "Body type is FIXED: no key here can shrink a body word. A label that does not fit is wrapped, shifted, short-formed (translations '<lang>_short') or reported for rewording. qa_prebuild.min_scale is only the severity threshold for the FIT report, not a shrink factor.",
   "layout": {
     "title_band_pt": 62,
     "body_thresh_pt": 135,
     "title_maxw_pt": 105,
     "wrap_space_pt": 26,
-    "card_bottom_margin_pt": 6,
-    "title_miss_size_pt": 19.5,
-    "room_floor_pt": 80,
-    "body_shrink": false,
-    "min_scale": 0.72,
     "wrap_lift_pt": 11,
     "wrap_clear_pt": 1.0,
+    "room_floor_pt": 80,
+    "title_miss_size_pt": 19.5,
     "pageno_gap_pt": 10.5,
     "pageno_shift_cap_pt": 16.0,
-    "clash_gap_pt": 5.669
+    "clash_gap_pt": 5.669,
+    "obstacle_gap_pt": 2.0,
+    "row_tol_pt": 16,
+    "bottom_row_pt": 60,
+    "row_lift_headroom_pt": 60,
+    "facts_max_missing_ratio": 0.5,
+    "min_scale": 0.72
   }
 }

@@ -119,4 +119,12 @@ if ($exited) {
 
 Say "===== summary ====="
 $results | ForEach-Object { Say $_ }
+$failed = @($results | Where-Object { $_ -match ' (FAIL|MISSING)$' })
 Write-Host "BATCH DONE"
+# A zero exit code is what callers (rebuild.py) and humans read as "delivered".
+# Reporting FAIL lines and still exiting 0 is how a broken book ships unnoticed.
+if ($failed.Count -gt 0) {
+    Say ("RESULT: " + $failed.Count + " of " + $results.Count + " job(s) FAILED")
+    exit 1
+}
+exit 0

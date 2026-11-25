@@ -15,9 +15,12 @@ Checks
   MISS   no translation at all / translation equals the English    -> untranslated
   TITLE  a card title is empty, or identical to its English        -> suspicious
   ABBR   an abbreviation cell holds a full word (12-13pt slot)     -> breaks cell
+  SZ     a body label carries a font-size override                 -> breaks the
+         one-size-per-card rule (only titles may be resized)
 
-Exit code 0 = clean, 1 = at least one hard issue (TITLE-identical is a warning
-because French "Nature"/"Sports" are genuinely spelled the same).
+Exit code 0 = clean, 1 = at least one hard issue (a title spelled like its
+English source is a warning because French "Nature"/"Sports" are genuinely the
+same word).
 
 Usage
   PIPELINE_CONFIG=/path/pipeline.json python qa_prebuild.py            # all
@@ -46,9 +49,7 @@ ENG = cfg.d.get('decision_engine', {}) or {}
 MIN_SCALE = float(LAY.get('min_scale', 0.72))
 CLASH_GAP = float(LAY.get('clash_gap_pt', ENG.get('min_gap_pt', 5.669)))
 PN_GAP = float(LAY.get('pageno_gap_pt', ENG.get('inter_label_gap_pt', 10.5)))
-CAP = float((cfg.d.get('geometry') or {}).get('cap_ratio_default', 0.728))
-CAPBY = (cfg.d.get('geometry') or {}).get('cap_ratio_by_lang', {})
-
+ALLOW_BODY_SZ = bool((cfg.d.get('gate') or {}).get('allow_body_sz', False))
 langs = sel[0].split(',') if sel else [l['code'] for l in cfg.langs]
 colors = [c['code'] for c in cfg.colors]
 
@@ -109,7 +110,6 @@ def pick(items, en, cx):
 rows_out = []
 hard = 0
 for code in langs:
-    cap = float(CAPBY.get(code, CAP))
     for color in colors:
         p = cfg.decision_path(code, color)
         if not os.path.exists(p):
@@ -118,15 +118,22 @@ for code in langs:
         d = json.load(open(p, encoding='utf-8'))
         dec = d.get(cfg.s['entries'], d)
         tmap = d.get(cfg.s.get('titles', 'title_map')) or {}
-        issues = {k: [] for k in ('GLYPH', 'FIT', 'CLASH', 'PN', 'MISS', 'TITLE', 'ABBR', 'TITLESAME')}
+        issues = {k: [] for k in ('GLYPH', 'FIT', 'CLASH', 'PN', 'MISS', 'TITLE',
+                                  'ABBR', 'SZ', 'TITLESAME')}
 
         for ab, items in dec.items():
             for en, v in items.items():
                 val = v.get('val') or ''
                 sz = v.get('sz') or ENG.get('base_size', 18.0)
-                if not val:
+                if not v.get('val'):
                     issues['MISS'].append([ab, en, 'empty'])
                     continue
+                # HARD RULE: only a title may change size. A body `sz` is
+                # honoured by make_jsx, so one reviewed cell would shrink a
+                # single word on an otherwise uniform card.
+                if v.get('sz') is not None and not ALLOW_BODY_SZ:
+                    issues['SZ'].append([ab, en, v['sz'],
+                                         'body size override (only titles resize)'])
                 _, _, cm = metrics(code)
                 bad = sorted({c for c in val.replace('\r', '')
                               if ord(c) not in cm and not c.isspace()})
@@ -201,8 +208,16 @@ for code in langs:
                     sz = (v or {}).get('sz') or ENG.get('base_size', 18.0)
                     cx = (v or {}).get('cx')
                     cx = l['cx'] if cx is None else cx
-                    h = cap * sz
-                    if l['cy'] + h / 2 <= pBot or l['cy'] - h / 2 >= pTop:
+                    # A wrapped label is ~2x taller than one line; measuring it
+                    # at cap height alone would test the wrong vertical band and
+                    # miss exactly the words that overprint the number. The block
+                    # keeps its FIRST line and grows downward (same convention as
+                    # make_jsx / build_decisions), so the band starts at the box
+                    # top, not at the centre.
+                    h1 = l['box'][1] - l['box'][3]
+                    h = h1 + (sz if '\r' in str(val) else 0.0)
+                    top = l['box'][1] + float((v or {}).get('dy') or 0.0)
+                    if top - h >= pTop or top <= pBot:
                         continue
                     gap = pL - (cx + text_w(code, val, sz) / 2)
                     if gap < PN_GAP - 0.3:
@@ -217,29 +232,31 @@ for code in langs:
                 issues['TITLESAME'].append([en, val])
 
         n = {k: len(v) for k, v in issues.items() if k != 'TITLESAME'}
-        block = sum(n[k] for k in ('GLYPH', 'FIT', 'CLASH', 'PN', 'MISS', 'ABBR'))
+        # TITLE is blocking too: an empty title ships an empty pill, and it used
+        # to be listed in the report while still exiting 0.
+        block = sum(n[k] for k in ('GLYPH', 'FIT', 'CLASH', 'PN', 'MISS', 'ABBR',
+                                   'TITLE', 'SZ'))
         hard += block
         rows_out.append({'lang': code, 'color': color, 'counts': n, 'issues': issues})
 
-HDR = ('%-6s%-8s%7s%6s%7s%5s%6s%6s' %
-       ('lang', 'color', 'GLYPH', 'FIT', 'CLASH', 'PN', 'MISS', 'TITLE'))
-print('=' * 74)
+COLS = ('GLYPH', 'FIT', 'CLASH', 'PN', 'MISS', 'TITLE', 'ABBR', 'SZ')
+HDR = '%-6s%-9s' + '%7s' * len(COLS)
+ROW = '%-6s%-9s' + '%7s' * len(COLS)
+print('=' * 92)
 print('qa_prebuild  FIT<%.2f  CLASH<%.1fpt  PN<%.1fpt' % (MIN_SCALE, CLASH_GAP, PN_GAP))
-print('=' * 74)
-print(HDR)
-tot = {k: 0 for k in ('GLYPH', 'FIT', 'CLASH', 'PN', 'MISS', 'TITLE')}
+print('=' * 92)
+print(HDR % (('lang', 'color') + COLS))
+tot = {k: 0 for k in COLS}
 for r in rows_out:
     if r['issues'] is None:
-        print('%-6s%-8s   (no decision json)' % (r['lang'], r['color']))
+        print('%-6s%-9s   (no decision json)' % (r['lang'], r['color']))
         continue
     c = r['counts']
     for k in tot:
         tot[k] += c[k]
-    print('%-6s%-8s%7d%6d%7d%5d%6d%6d' %
-          (r['lang'], r['color'], c['GLYPH'], c['FIT'], c['CLASH'], c['PN'], c['MISS'], c['TITLE']))
-print('-' * 74)
-print('%-14s%7d%6d%7d%5d%6d%6d' % ('TOTAL', tot['GLYPH'], tot['FIT'], tot['CLASH'],
-                                   tot['PN'], tot['MISS'], tot['TITLE']))
+    print(ROW % ((r['lang'], r['color']) + tuple(c[k] for k in COLS)))
+print('-' * 92)
+print(ROW % (('TOTAL', '') + tuple(tot[k] for k in COLS)))
 
 if detail:
     for r in rows_out:

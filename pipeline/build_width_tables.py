@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-r"""Build the width tables the JSX generator consumes (MAXW / SCALE / FINAL).
+r"""Build the width table the JSX generator consumes (MAXW / FINAL text).
 
     python build_width_tables.py [pipeline.json]
 
 Why this exists
 ---------------
 The original project measured every word by hand and hard-coded two tables
-(MAXW = max ink width per word, SCALE = font-size factor) inside its own JSX.
+(MAXW = max ink width per word, plus a font-size factor) inside its own JSX.
+The size factor is GONE: body type is fixed, only titles may be resized.
 The generic pipeline needs the same numbers, produced automatically from data
 it already has: the spans extracted from the source artwork + the translation
 table + the real output font metrics.
@@ -15,16 +16,16 @@ Output: <work>/width_tables.json
   slot     {en: {maxw, maxink, size, is_title, n}}
   safe     {en: safe_width}
   pos      {en: [[color, page, row, bottom_gap], ...]}
-  per_lang {lang: {en: {"val": text (may contain \r), "scale": factor}}}
+  per_lang {lang: {en: {"val": text (may contain \r)}}}
 
 Rules baked in (all configurable under "layout" in pipeline.json):
   * a word wider than its safe slot is first wrapped onto two lines, but only
     where there is enough empty space below it (wrap_space_pt);
   * wrapping balances the two lines and never splits a single word;
-  * if wrapping is not allowed/possible the font size is scaled down, but never
-    below min_scale (a word that still overflows is reported, not hidden);
-  * titles are NOT handled here: their size comes from the artwork itself and
-    is fitted to the title oval by make_jsx.py.
+  * the font size is NEVER changed here. Body type is fixed for the whole card
+    (only a title may resize, and titles are sized from the artwork + oval by
+    make_jsx.py). A word that still overflows is REPORTED, never shrunk.
+  * titles are NOT handled here.
 """
 import os
 import sys
@@ -46,11 +47,6 @@ SPACE_NEED = float(lay.get('wrap_space_pt', 26))
 # is what lets bottom-row labels wrap instead of being force-shortened.
 WRAP_LIFT = float(lay.get('wrap_lift_pt', 11))
 MIN_GAP = max(0.0, SPACE_NEED - WRAP_LIFT)
-MIN_SCALE = float(lay.get('min_scale', 0.72))
-# HARD RULE: only TITLES may be resized. Body words keep the artwork's font size;
-# when a translation does not fit they are wrapped, shortened or reported -- never
-# shrunk. (Shrinking body text breaks the size symmetry the cards rely on.)
-BODY_SHRINK = bool(lay.get('body_shrink', False))
 
 _sp = os.path.join(cfg.work, cfg.f['spans'])
 if not os.path.exists(_sp):
@@ -174,31 +170,31 @@ for en, info in slot.items():
 # is a genuine second line and is translated line by line.
 compound = set()
 DECVAL, DVWRAP = {}, {}
-for f in glob.glob(os.path.join(cfg.work, 'v7_dec_*.json')) + \
-         glob.glob(os.path.join(cfg.work, '*decision*.json')):
-    # Only real decision files are "v7_dec_<lang>_<color>.json". A tuning file
-    # whose name merely contains "decision" (decision_tuning.json) used to be
-    # parsed as one and crashed the whole step on an IndexError.
-    _base = os.path.basename(f)
-    _parts = _base[:-5].split('_') if _base.endswith('.json') else []
-    if len(_parts) < 4 or _parts[0] != 'v7' or _parts[1] != 'dec':
-        continue
-    try:
-        dd = json.load(open(f, encoding='utf-8'))
-    except Exception:
-        continue
-    _lg = _parts[2]
-    for recs in (dd.get(cfg.s['entries'], {}) or {}).values():
-        for k, rec in (recs or {}).items():
-            if '\r' in str(k):
-                compound.add(k)
-            if not isinstance(rec, dict):
-                continue
-            v = rec.get('val')
-            if isinstance(v, str):
-                DECVAL.setdefault((_lg, k), set()).add(v)
-            if rec.get('wrap'):
-                DVWRAP[(_lg, k)] = 1
+# Decision files are found through the configured naming template, not by a
+# hard-coded "v7_dec_*" prefix: the skill is supposed to be config-driven, and a
+# project that names its decisions differently used to lose every wrap/short
+# flag (the tables then disagreed with the decisions they were built from).
+for _l in cfg.langs:
+    for _c in cfg.colors:
+        _p = cfg.decision_path(_l['code'], _c['code'])
+        if not os.path.exists(_p):
+            continue
+        try:
+            dd = json.load(open(_p, encoding='utf-8'))
+        except Exception:
+            continue
+        _lg = _l['code']
+        for recs in (dd.get(cfg.s['entries'], {}) or {}).values():
+            for k, rec in (recs or {}).items():
+                if '\r' in str(k):
+                    compound.add(k)
+                if not isinstance(rec, dict):
+                    continue
+                v = rec.get('val')
+                if isinstance(v, str):
+                    DECVAL.setdefault((_lg, k), set()).add(v)
+                if rec.get('wrap'):
+                    DVWRAP[(_lg, k)] = 1
 
 def build_compound(lang):
     out = {}
@@ -219,7 +215,7 @@ def build_compound(lang):
             out[key] = '\r'.join(trans)
     return out
 
-# ---- 3. per-language FINAL text + SCALE ------------------------------------
+# ---- 3. per-language FINAL text (wrapping only, never resizing) ------------
 def measurer(path):
     f = TTFont(path)
     upm = f['head'].unitsPerEm
@@ -232,11 +228,12 @@ def measurer(path):
     return width
 
 def wrap_balanced(text, maxw, W):
+    """Balanced two-line split, or None when the text cannot be wrapped."""
     if W(text) <= maxw:
-        return text, 1.0
+        return text
     words = text.split()
     if len(words) == 1:
-        return None, maxw / W(text)          # cannot wrap a single word
+        return None                          # cannot wrap a single word
     best = None
     for i in range(1, len(words)):
         l1, l2 = ' '.join(words[:i]), ' '.join(words[i:])
@@ -244,12 +241,10 @@ def wrap_balanced(text, maxw, W):
         if best is None or m < best[0]:
             best = (m, l1, l2)
     _, l1, l2 = best
-    scale = maxw / best[0] if best[0] > maxw else 1.0
-    return l1 + '\r' + l2, scale
+    return l1 + '\r' + l2
 
 per_lang = {}
 overflows = {}
-shorted_list = {}
 for lang, lcfg in LANGS.items():
     W = measurer(cfg.font_file_for(lang))
     MAP_ALL = dict(D)
@@ -305,7 +300,7 @@ for lang, lcfg in LANGS.items():
                 break
     wrapped = set(row_wrap.values())
 
-    out, overflow, shorted = {}, [], []
+    out, overflow = {}, []
     for en, entry in MAP_ALL.items():
         val = entry.get(lang) if isinstance(entry, dict) else entry
         if not val:
@@ -319,17 +314,24 @@ for lang, lcfg in LANGS.items():
         # legitimate (it may have been shifted inward), so the slot must NOT
         # force a wrap or a short translation here.
         if '\r' in val:
-            out[en] = {'val': val, 'scale': 1.0}        # already two lines
+            out[en] = {'val': val}                      # already two lines
         elif DVWRAP.get((lang, en)) and ' ' in val:
-            s2, _sc = wrap_balanced(val, sw, W)         # flagged but still 1 line
-            out[en] = {'val': s2 or val, 'scale': 1.0}
+            s2 = wrap_balanced(val, sw, W)              # flagged but still 1 line
+            out[en] = {'val': s2 or val}
         else:
-            out[en] = {'val': val, 'scale': 1.0}
+            out[en] = {'val': val}
 
         # report only: wider than the column slot. Trustworthy as a smell, not
         # as an error -- the card edge is what actually matters.
         w0 = max((W(p) for p in out[en]['val'].split('\r')), default=0.0)
-        if w0 > sw + 0.5:
+        # Titles are excluded: they are fitted to their oval by make_jsx and are
+        # ALLOWED to be wider than TITLE_MAXW as a starting point. Listing them
+        # here (``Actions``, ``Necessities`` ...) read like body defects.
+        # Second lines of a two-line label ("(fire engine)") are never typeset
+        # on their own -- the compound key governs them -- so listing them here
+        # sent reviewers after words that never reach the artwork.
+        if (w0 > sw + 0.5 and not (slot.get(en) or {}).get('is_title')
+                and str(en).strip() not in second_lines):
             overflow.append({'en': en, 'val': out[en]['val'].replace('\r', ' | '),
                              'width': round(w0, 1), 'slot': sw,
                              'need_scale': round(sw / w0, 3)})
@@ -356,10 +358,9 @@ for lang, lcfg in LANGS.items():
     overflows[lang] = sorted(
         [o for o in overflow if W(out.get(o['en'], {}).get('val', o['val'])) > o['slot'] + 0.5],
         key=lambda o: o['en'])
-    shorted_list[lang] = shorted
 
 json.dump(dict(slot=slot, safe=safe, pos=pos, per_lang=per_lang,
-               overflow=overflows, short=shorted_list),
+               overflow=overflows),
           open(os.path.join(cfg.work, 'width_tables.json'), 'w', encoding='utf-8'),
           ensure_ascii=False, indent=1)
 
@@ -367,15 +368,14 @@ print('body style: color=0x%06X size=%.1f | page height=%.1f' % (BODY_COLOR, BOD
 print('slot:', len(slot), '| title:', sum(1 for v in slot.values() if v['is_title']),
       '| body:', sum(1 for v in slot.values() if not v['is_title']),
       '| compound keys:', len(compound))
-print('body shrink:', 'ON' if BODY_SHRINK else 'OFF (only titles may resize)')
+print('body size: FIXED (only titles may resize; overflow is reported, not shrunk)')
 for lang in LANGS:
     pl = per_lang[lang]
-    scaled = [e for e, r in pl.items() if r['scale'] < 1.0]
     wrapped = [e for e, r in pl.items() if '\r' in r['val']]
-    print('  %-5s scaled=%-3d wrapped=%-3d overflow(keep size, needs review)=%-3d %s' % (
-        lang, len(scaled), len(wrapped), len(overflows[lang]),
-        ', '.join('%s x%.2f' % (e, pl[e]['scale']) for e in scaled[:4])))
+    print('  %-5s wrapped=%-3d overflow(needs review)=%-3d' % (
+        lang, len(wrapped), len(overflows[lang])))
     for o in overflows[lang][:5]:
-        print('      ! %-22s w=%.1f > slot %.1f (需缩到 %.2f，未缩)' % (
-            o['en'].replace('\r', '/'), o['width'], o['slot'], o['need_scale']))
+        print('      ! %-22s w=%.1f > slot %.1f (%.0f%% of the slot: wider than the column, card edge decides)'
+              % (o['en'].replace('\r', '/'), o['width'], o['slot'],
+                 o['need_scale'] * 100))
 print('wrote', os.path.join(cfg.work, 'width_tables.json'))

@@ -113,10 +113,14 @@ for l in cfg.langs:
                 fo = ws.cell(row=r, column=CI['字体'], value=cfg.font_for(lang))
                 fo.fill = INFO; fo.font = Font(size=9, color='595959')
                 # "#abbr" rows carry the SOURCE size of the small variant, so the
-                # reviewer sees 12.8 (the band), not 18 (the full name)
+                # reviewer sees 12.8 (the band), not 18 (the full name).
+                # READ-ONLY on purpose: only a TITLE may change size, and titles
+                # are fitted to their oval by the JSX, so no size cell in this
+                # book is editable. A yellow cell here used to invite a body
+                # override, which one word at 16.9pt makes obvious on the card.
                 _szv = rec.get(SZ) or rec.get('szsrc') or cfg.src_size(color, en, ab)
                 sc = ws.cell(row=r, column=CI['字号'], value=_szv)
-                sc.fill = EDIT; sc.number_format = '0.0'
+                sc.fill = INFO; sc.number_format = '0.0'
                 zc = ws.cell(row=r, column=CI['中文'],
                              value=cfg.zh(color, ab, en.split('#abbr')[0]))
                 zc.fill = EDIT
@@ -253,7 +257,9 @@ notes = [
     '固定位置：%s，文件名不带日期，永远是当前最新的一版。' % OUT,
     '重新出表时脚本会先把表里的改动回灌到决策文件，再覆盖表，不会丢你改过的内容。',
     '', '怎么用',
-    '1. 浅黄底可改：语言页的「字号」「中文」「译文」，对照页的「中文」。',
+    '1. 浅黄底可改：语言页的「译文」「中文」，对照页的「中文」。',
+    '   字号是只读的灰底——正文字号整本固定，只有标题能改大小，而标题字号由椭圆自动贴合，',
+    '   不需要人工填。正文放不下时请改词/折两行，不要改字号（改了会被闸门拦下）。',
     '   ID 是回写主键；序号/颜色/画板/页码/字体/英文原文请勿改动。',
     '   页码 = 画板 + 1（画板 0 起算），等于 PDF 页序，只读。',
     '2. 改完保存并关闭 Excel → ledger_import.py 回灌 → rebuild.py <lang> <color> 只重建那一本。',

@@ -80,61 +80,6 @@ function applyTitleSize(tf,sz){
     return true;
 }
 
-/* Fit the WHOLE ink block (1 or 2 lines) inside the ellipse:
-       (W/2a)^2 + (H/2b)^2 <= M^2
-   Closed-form first pass, then an 8-pass safety net that re-measures the real
-   ink box. Finally centre on the type body (cap top -> last baseline), NOT the
-   raw ink box, which rides high when the first line is wider. */
-function fitTitle(tf,tb,base,ell){
-    if(!ell){ applyTitleSize(tf,base||18); return false; }
-    var e=ell;
-    var ecx=(e[0]+e[2])/2, ecy=(e[1]+e[3])/2;
-    var ea=(e[2]-e[0])/2, eb=(e[1]-e[3])/2;
-    if(ea<1||eb<1){ applyTitleSize(tf,base||18); return false; }
-    var M=GEO.emargin;
-    var sz=base||18;
-    var twoMove=(tf.contents.indexOf("\r")>=0);
-    applyTitleSize(tf,sz);
-    var b0=inkBounds(tf)||tf.visibleBounds;
-    var w0=b0[2]-b0[0], h0=b0[1]-b0[3];
-    if(w0>0.5&&h0>0.5&&sz>0.5){
-        var k1=w0/sz, k2=h0/sz;
-        var D=(ea*M*k2)/(eb*k1);
-        var u=D/Math.sqrt(1+D*D);
-        var sz2=(2*eb*u)/k2;
-        if(sz2>sz) sz2=sz;                    /* never enlarge */
-        if(sz2<sz*0.3) sz2=sz*0.3;            /* never collapse */
-        if(sz-sz2>0.05){ sz=sz2; applyTitleSize(tf,sz); }
-    }
-    for(var g=0;g<8;g++){
-        var b1=inkBounds(tf)||tf.visibleBounds;
-        var w=b1[2]-b1[0], h=b1[1]-b1[3];
-        var qq=h/(2*eb); if(qq>0.97) qq=0.97;
-        var availW=2*ea*Math.sqrt(1-qq*qq)*M;
-        if(w<=availW+0.25) break;
-        sz=sz*(availW/w);
-        if(!applyTitleSize(tf,sz)) break;
-    }
-    for(var q=0;q<6;q++){
-        var b2=inkBounds(tf)||tf.visibleBounds;
-        var vc;
-        if(twoMove){
-            var capT=GEO.capr*sz;
-            var hcap=capT+(capT+GEO.egap);    /* cap top -> last baseline */
-            vc=b2[1]-hcap/2;
-        }else{
-            var capH2=GEO.capr*sz;
-            var desc=b2[1]-capH2-b2[3];       /* ink below baseline */
-            if(desc<0) desc=0;
-            vc=b2[1]-(capH2+0.5*desc)/2;      /* cap centre, desc at half weight */
-        }
-        var dx=ecx-(b2[0]+b2[2])/2, dy=ecy-vc;
-        if(Math.abs(dx)<0.2&&Math.abs(dy)<0.2) break;
-        tf.translate(dx,dy);
-    }
-    return true;
-}
-
 /* How far outside the pill does an ink box sit?  1.0 = exactly on the edge.
    The pill is a real ELLIPSE (4 cubic beziers), not a rounded rectangle, so
    the usable width shrinks fast as the text rises: at 8pt above the centre of
@@ -162,19 +107,64 @@ function ellOverflow(b,ell,m){
      - centres the ink block on the pill both ways.
    No aspect-ratio closed form, no per-title "looks about right" shrinking:
    that is what made identical titles land on different sizes. */
-function centerTitleInPill(tf,ell,sz,two){
+function centerTitleInPill(tf,ell,sz,two,vdown,w1,w2){
     if(!ell){ applyTitleSize(tf,sz||18); return sz||18; }
     var e=ell, M=GEO.emargin;
     if((e[2]-e[0])<2||(e[1]-e[3])<2){ applyTitleSize(tf,sz||18); return sz||18; }
     sz=sz||18;
     applyTitleSize(tf,sz);
+    /* vdown: how far BELOW the oval's centre a two-line block should sit, in
+       points at the size it was measured at (TITLEDY). Plain centring puts the
+       wider line on the block's outer edge, where the oval has already tapered,
+       so that line ends up nearly touching the curve while the short line
+       floats inside -- the "looks lopsided" report. Equalising the oval
+       utilisation of the outer lines is what _two_line_shift() computes; it
+       can only lower the worst corner. Scales with the size, so keep the ratio
+       when the loop below has to shrink the title. */
+    var vo=two?(vdown||0):0, sz0=sz;
     var floor=Math.max(6,(GEO.tsz||22)*0.45);
+    /* ---- TWO-LINE TITLE: judge each line, place with the offset -----------
+       A two-line block is NOT a rectangle: its bounding box pairs the widest
+       line's ends with the deepest line's edge, and those two corners can lie
+       far outside the oval while every glyph is well inside ("Necessidades"
+       43.8pt wide on top, "diarias" 21pt below). Testing the box instead of
+       the lines makes the engine shrink a correctly sized title to 11.5pt the
+       moment the block is nudged down, so the lines are measured here on their
+       own: line 1 sits at the block's top edge, line 2 one lead lower, and each
+       is tested against the oval with its OWN width.
+       w1/w2 are the line widths at `sz0` (TITLEW, from the generator); they
+       scale with the size. Descenders are ignored on purpose -- a "q" tail may
+       dip below the oval the way a single-line title's already may. */
+    if(two && w1>0){
+        var A2=(e[2]-e[0])/2*M, B2=(e[1]-e[3])/2*M;
+        var cxE=(e[0]+e[2])/2, cyE=(e[1]+e[3])/2;
+        for(var g2=0;g2<8;g2++){
+            for(var q3=0;q3<3;q3++){
+                var b3=inkBounds(tf)||tf.visibleBounds;
+                var dx3=cxE-(b3[0]+b3[2])/2;
+                var dy3=(cyE-vo*(sz/sz0))-((b3[1]+b3[3])/2);
+                if(Math.abs(dx3)<0.2&&Math.abs(dy3)<0.2) break;
+                tf.translate(dx3,dy3);
+            }
+            var b4=inkBounds(tf)||tf.visibleBounds;
+            var kk=sz/sz0, ld2=GEO.lead*sz/18;
+            var t1=b4[1];
+            var u1=Math.pow((w1*kk/2)/A2,2)+Math.pow((t1-cyE)/B2,2);
+            var u2=Math.pow((w2*kk/2)/A2,2)+Math.pow((t1-ld2-GEO.capr*sz-cyE)/B2,2);
+            var uw=Math.max(u1,u2);
+            if(uw<=GEO.t2f) break;
+            sz=sz*Math.sqrt(GEO.t2f/uw)*0.995;
+            if(sz<floor){ sz=floor; applyTitleSize(tf,sz); break; }
+            if(!applyTitleSize(tf,sz)) break;
+        }
+        return sz;
+    }
     for(var g=0;g<10;g++){
         /* 1. centre first: the fit test must be done where the text will sit */
         for(var q=0;q<3;q++){
             var b=inkBounds(tf)||tf.visibleBounds;
             var dx=(e[0]+e[2])/2-(b[0]+b[2])/2;
-            var vc=two?((b[1]+b[3])/2):(b[1]-GEO.capr*sz/2);
+            var vc=two?((b[1]+b[3])/2+vo*(sz/sz0)):(b[1]-GEO.capr*sz/2);
             var dy=(e[1]+e[3])/2-vc;
             if(Math.abs(dx)<0.2&&Math.abs(dy)<0.2) break;
             tf.translate(dx,dy);
@@ -182,7 +172,12 @@ function centerTitleInPill(tf,ell,sz,two){
         /* 2. still poking out of the oval -> scale down to sit exactly inside.
            For one line only the CAP band counts: a descender (Stagioni "g")
            is allowed to hang, otherwise the same word shrinks 0.7pt more just
-           because its tail dips lower. */
+           because its tail dips lower.
+           A TWO-LINE title is tested as a BLOCK against the same ellipse: the
+           widest line has to sit inside the oval at BOTH of the block's outer
+           edges. Testing it as a rectangle instead let "Necessidades" grow to
+           14.8pt and poke out of the pill's left and right ends -- the oval is a
+           true ellipse (4 beziers), so there is no straight edge to lean on. */
         var bb=inkBounds(tf)||tf.visibleBounds;
         var bx=two?bb:[bb[0],bb[1],bb[2],bb[1]-GEO.capr*sz];
         var k=ellOverflow(bx,e,M);
@@ -195,7 +190,7 @@ function centerTitleInPill(tf,ell,sz,two){
     for(var q2=0;q2<3;q2++){
         var b2=inkBounds(tf)||tf.visibleBounds;
         var dx2=(e[0]+e[2])/2-(b2[0]+b2[2])/2;
-        var vc2=two?((b2[1]+b2[3])/2):(b2[1]-GEO.capr*sz/2);
+        var vc2=two?((b2[1]+b2[3])/2+vo*(sz/sz0)):(b2[1]-GEO.capr*sz/2);
         var dy2=(e[1]+e[3])/2-vc2;
         if(Math.abs(dx2)<0.2&&Math.abs(dy2)<0.2) break;
         tf.translate(dx2,dy2);
@@ -215,9 +210,10 @@ function rectGap(a,b){
 
 /* Guard: after the decision's cx/dy are applied, check the word against the
    configured illustration boxes. GEO.ocap=0 => WARN ONLY (never move an
-   approved layout); >0 => nudge upward by at most ocap points. The engine that
-   produces the decision JSON already avoids collisions - this is a safety net
-   for projects that build decisions manually. */
+   approved layout); >0 => move DOWN, i.e. away from the artwork sitting above
+   the label, by at most ocap points (Y grows up in the document space, so
+   translate(0,-step) goes down). The engine that produces the decision JSON
+   already avoids collisions - this is a safety net for hand-built decisions. */
 function guardObstacles(tf,obs,key){
     if(!GEO.ogap||!obs||!obs.length) return;
     var moved=0;

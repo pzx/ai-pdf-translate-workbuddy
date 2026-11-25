@@ -106,7 +106,12 @@ class GeomLib:
         for ab, pg in pages.items():
             fs = sorted(pg['frames'], key=lambda f: f['w'] * f['h'])
             pg['frame_outer'] = fs[-1]['box'] if fs else None
-            pg['frame_inner'] = inner.get(ab, fs[0]['box'] if fs else None)
+            # NO fallback to the smallest frame: an inner TSV that is missing (or
+            # classifies nothing on this page) means the card edges are unknown,
+            # and every in-card shift / wrap decision would be solved against
+            # the wrong rectangle without a single warning. Leaving it None makes
+            # preflight.py and build_decisions.py REFUSE loudly instead.
+            pg['frame_inner'] = inner.get(ab)
             for l in pg['labels']:
                 # link the nearest illustration in the expected vertical
                 # direction; score blends horizontal distance with vertical.

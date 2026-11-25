@@ -9,10 +9,12 @@
     python rebuild.py all               every book (skips unchanged)
     python rebuild.py all --force       every book, ignore fingerprints
 
-Fingerprint = decision file (size,mtime) + source file (size,mtime), stored in
-manifest. Deliberately EXCLUDES generator scripts: editing a script must not
-silently invalidate all books - use --force for an intentional full rebuild.
-Success is judged by OUTPUT PDF mtime, NOT the PowerShell stdout (non-UTF8).
+Fingerprint = decision file (size,mtime) + width_tables.json + source file
+(size,mtime), stored in manifest. Deliberately EXCLUDES generator scripts:
+editing a script must not silently invalidate all books - use --force for an
+intentional full rebuild. Success is judged by OUTPUT PDF mtime, NOT the
+PowerShell stdout (non-UTF8), and the exit code reports failures instead of only
+printing them.
 """
 import os, sys, subprocess, json, time
 from common import (Config, load_manifest, save_manifest, signature)
@@ -122,10 +124,20 @@ cmd = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', runner
 r = subprocess.run(cmd, cwd=cfg.work, text=True, encoding='utf-8', errors='replace')
 print((r.stdout or '')[-2500:])
 # trust file timestamps, not console text
+built, failed = 0, []
 for js, lang, color in jsxs:
     ai, pdf = cfg.product_paths(lang, color)
     if os.path.exists(ai) and os.path.exists(pdf) and os.path.getmtime(pdf) >= started - 2:
         man['%s|%s' % (lang, color)] = signature(cfg, lang, color)
+        built += 1
+    else:
+        failed.append('%s %s' % (lang, color))
 save_manifest(cfg, man)
-print('built %d, skipped %d' % (len(jsxs), skipped), flush=True)
+print('built %d/%d, skipped %d%s' %
+      (built, len(jsxs), skipped,
+       '' if not failed else ', FAILED: ' + ', '.join(failed)), flush=True)
+if failed:
+    # the runner may still have exited 0 (older copies do); the products are the
+    # only evidence that matters, so fail here as well
+    raise SystemExit(2)
 sys.exit(r.returncode)
