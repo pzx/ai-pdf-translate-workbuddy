@@ -1,0 +1,210 @@
+{
+  "_comment": "Copy to <your-project>/pipeline.json and edit. 'base' must be your project root (absolute). Every other path is relative to 'base' unless absolute. Decision files are the single source of truth; this config only tells the scripts where things live and how files are named.",
+  "project": "D7",
+  "base": "D:/path/to/your-project",
+  "work_dir": "work",
+  "input_dir": "input/英语",
+  "output_dir": "output",
+  "xlsx_dir": "output/xlsx",
+  "_batch_comment": "Batch/date of finished goods. Set per run via env BATCH_DATE or edit here. Ledgers are NOT dated - they always live in xlsx_dir.",
+  "batch_date": "2026-11-20",
+  "_lang_comment": "code = decision-file code; name = the Chinese/canonical label shown in the ledger and used in product filenames; font = actual output font for that language. IMPORTANT: languages with regional variants must be confirmed with the user BEFORE building (see SKILL.md step 0) and listed as separate entries: Portuguese = ptbr (Brazil, onibus) vs ptpt (Europe, autocarro); Spanish = eses (Spain) vs esmx/esar (Latin America); English = enus/enuk; Chinese = zhcn/zhtw. Never collapse variants into one 'Portuguese'/'Spanish' entry - the translations differ word by word. Optional per-language 'font_file' gives the exact TTF path used by build_decisions.py to measure glyph widths (e.g. C:/Windows/Fonts/ARLRDBD.TTF); without it the script fuzzy-matches the font name in font_dir.",
+  "default_font": "Arial Rounded MT Bold",
+  "font_dir": "C:/Windows/Fonts",
+  "languages": [
+    {
+      "code": "it",
+      "name": "意大利语",
+      "font": "Arial Rounded MT Bold"
+    },
+    {
+      "code": "ptbr",
+      "name": "巴西葡萄牙语",
+      "font": "Arial Rounded MT Bold"
+    },
+    {
+      "code": "ptpt",
+      "name": "欧洲葡萄牙语",
+      "font": "Arial Rounded MT Bold"
+    },
+    {
+      "code": "ru",
+      "name": "俄语",
+      "font": "Segoe UI Bold"
+    },
+    {
+      "code": "de",
+      "name": "德语",
+      "font": "Arial Rounded MT Bold"
+    },
+    {
+      "code": "fr",
+      "name": "法语",
+      "font": "Arial Rounded MT Bold"
+    }
+  ],
+  "_color_comment": "no = the serial number embedded in source/product filenames; pages = expected PDF page count for verification; name = label used in filenames.",
+  "colors": [
+    {
+      "code": "purple",
+      "name": "紫色",
+      "no": "1",
+      "pages": 24
+    },
+    {
+      "code": "orange",
+      "name": "橙色",
+      "no": "2",
+      "pages": 26
+    },
+    {
+      "code": "green",
+      "name": "绿色",
+      "no": "3",
+      "pages": 26
+    },
+    {
+      "code": "blue",
+      "name": "蓝色",
+      "no": "4",
+      "pages": 24
+    }
+  ],
+  "_files_comment": "Python str.format templates. Available keys: {no} {color_code} {color_name} {lang_code} {lang_name} {base} {work} {batch}.",
+  "files": {
+    "decision": "v7_dec_{lang_code}_{color_code}.json",
+    "source_ai": "D7_点读启蒙卡片_{no}{color_name}背景（美式英语）.ai",
+    "product": "D7_点读启蒙卡片_{no}{color_name}背景_{lang_name}",
+    "spans": "all_spans.json",
+    "gloss": "zh_gloss.json",
+    "translations": "translations.json",
+    "decision_tuning": "",
+    "geom": "geom_{color_code}.tsv",
+    "geom_inner": "inner_{color_code}.tsv",
+    "ink": "ink_{color_code}.tsv",
+    "manifest": ".build_manifest.json",
+    "ledger": "翻译总表.xlsx",
+    "letters": "字母对应表.xlsx",
+    "jsx": "job_{lang_code}_{color_code}.jsx",
+    "jsx_log": "job_{lang_code}_{color_code}.log"
+  },
+  "_schema_comment": "Key names inside each decision JSON. Leave as-is unless your decision generator uses different keys.",
+  "schema": {
+    "entries": "dec",
+    "value": "val",
+    "size_override": "sz",
+    "mode": "mode",
+    "titles": "title_map",
+    "ab_is_zero_based": true
+  },
+  "_gate_comment": "Decision completeness gate. cx (target horizontal centre measured from the source artwork) is ALWAYS required: without it the JSX skips centring and outputs misaligned words. sz is optional by default because a missing sz means 'keep the source font size' (the reference book has 0/145 explicit sz); set require_sz=true ONLY if your decision engine always writes explicit sizes.",
+  "gate": {
+    "require_sz": false
+  },
+  "_jsx_comment": "JSX generator settings. generator is a command template receiving lang/color; runner is the PowerShell batch script.",
+  "jsx": {
+    "generator": "make_jsx.py",
+    "runner": "../scripts/run_batch.ps1",
+    "done_marker": "DONE total_ms",
+    "wait_ms": 2000,
+    "pdf_compatible": true
+  },
+  "_geometry_export_comment": "Size gates for classifying page objects when exporting geometry from a NEW layout. export_geometry.py injects these into geometry_export_template.jsx. Run 'python export_geometry.py <color> --no-run' then inspect geom_<color>.tsv counts (labels/illus/titles per artboard) and tune until they match the real artwork. illus_above=false for layouts where the illustration sits BELOW its label. This is the ONLY step that is layout-specific.",
+  "geometry_export": {
+    "label_h_range": [
+      14,
+      46
+    ],
+    "frame_w_min": 300,
+    "frame_h_min": 250,
+    "title_w_range": [
+      130,
+      165
+    ],
+    "title_h_range": [
+      28,
+      40
+    ],
+    "illus_min_kids": 2,
+    "illus_h_min": 25,
+    "inner_w_range": [
+      410,
+      470
+    ],
+    "inner_h_range": [
+      260,
+      300
+    ],
+    "illus_above": true,
+    "own_illus_cy_gap": 20,
+    "require_title_per_board": true,
+    "title_min_size_pt": 19,
+    "outline_w_range": [
+      60,
+      220
+    ],
+    "outline_h_range": [
+      12,
+      60
+    ],
+    "title_band_ratio": 0.25
+  },
+  "_decision_engine_comment": "Layout-agnostic placement thresholds used by build_decisions.py. Defaults are the proven values; tune only if the new artwork uses very different spacing. All in points. base_size is the source font size the translations table was measured against.",
+  "decision_engine": {
+    "min_gap_pt": 5.669,
+    "inter_label_gap_pt": 10.5,
+    "own_illus_gap_pt": 1.0,
+    "shift_cap_pt": 8.0,
+    "column_ratio": 0.25,
+    "wrap_lift_cap_pt": 12.0,
+    "relax_shift_pt": 26.0,
+    "base_size": 18.0,
+    "lead_extra_pt": 1.0
+  },
+  "_decision_tuning_comment": "OPTIONAL project-specific fixes, file named by files.decision_tuning. A new project may leave it empty - the engine still produces full cx/dy/sz. Format: {short:{lang:{en:val}}, sizefix:{lang:{en:pt}}, compound:{...}, titles:{lang:{en:val}}, pos:{lang:{color:{'<ab>|<en>':{dx,dy}}}}}. 'pos' holds reviewer hand-edit shifts (from a manual-vs-generated span diff) applied to cx/dy at write time, so a clean rebuild reproduces hand placement.",
+  "_vector_text_comment": "Labels drawn as OUTLINED vector paths have no text layer, so export_spans cannot find them and they would ship untranslated. Declare each here: color, page (1-based), en (translation-table key), box=[x0,y0,x1,y1] in ILLUSTRATOR EXPANDED coords (diagnose by listing groupItems matching the label area), size. make_jsx deletes the matching group(s) and typesets the translation in place. Leave [] if the artwork has no outlined text.",
+  "vector_text": [],
+  "_vector_text_engine_comment": "Tuning for locating an outlined label's group and choosing a body-label frame as the replacement template. Defaults suit an 18pt-label deck; change to match your artwork's body size. center_tol_pt/size_tol_pt: bbox match tolerances. template_size_min_pt/max_pt: acceptable body font size when picking a template frame.",
+  "vector_text_engine": {
+    "center_tol_pt": 3.0,
+    "size_tol_pt": 4.0,
+    "template_size_min_pt": 16.5,
+    "template_size_max_pt": 19.5
+  },
+  "_geometry_comment": "Layout constraints injected into the JSX. Values below are proven on the D7 book; tune per source artwork. title_fit: shrink+centre titles inside the real ellipse (found by scanning pathItems). Word overflow is already pre-computed into each decision's sz by the decision engine; ink_bounds_words makes the JSX re-measure ink instead of visibleBounds (slower but more accurate). Obstacles: decision JSON may carry 'obstacles' per artboard as [[x0,y0,x1,y1],...]; ocap=0 only WARNS in the log, >0 nudges upward by at most that many points. Keep ocap=0 if your decision engine already resolved collisions.",
+  "geometry": {
+    "title_fit": true,
+    "title_wrap_ratio": 0.7,
+    "ink_bounds_words": false,
+    "cap_ratio_default": 0.728,
+    "cap_ratio_by_lang": {
+      "ru": 0.7002
+    },
+    "lead_at_18": 17.9,
+    "ellipse_margin": 1.0,
+    "ellipse_w_range": [
+      80,
+      150
+    ],
+    "ellipse_h_range": [
+      18,
+      60
+    ],
+    "ellipse_center_tol": 8,
+    "ellipse_lead_gap": 1.5,
+    "obstacle_gap": 2.0,
+    "obstacle_nudge_cap": 0
+  },
+  "layout": {
+    "body_thresh_pt": 135,
+    "title_maxw_pt": 105,
+    "wrap_space_pt": 26,
+    "card_bottom_margin_pt": 6,
+    "title_miss_size_pt": 19.5,
+    "room_floor_pt": 80,
+    "body_shrink": false,
+    "min_scale": 0.72,
+    "wrap_lift_pt": 11,
+    "wrap_clear_pt": 1.0
+  }
+}

@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local backup snapshots (not part of the skill)
+_backup_*/
+
+# Logs
+*.log
