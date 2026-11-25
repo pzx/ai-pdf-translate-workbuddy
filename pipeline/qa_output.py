@@ -133,20 +133,20 @@ def _text_rows(page, pill):
 
 
 def title_rows(page):
-    """Geometry of a pill title, read from VECTOR PATHS.
+    """Geometry of a pill title, read from the SHIPPED artwork.
 
-    Everything above this line assumes live text, and a finished .ai is fully
-    outlined -- get_text() returns nothing, so every page was skipped and the
-    post-build gate passed vacuously. The pill and its glyphs are still vector
-    drawings, so this works on the shipped file.
+    The pill is a filled path either way, so it is always found here. What sits
+    inside it differs by product, and that is what broke the gate: a shipped
+    PDF is outlined (real glyph paths), while an .ai is editable artwork whose
+    title is still a LIVE text frame -- zero glyph paths inside the pill. A
+    path-only probe therefore found the pill, found nothing in it, and reported
+    .ai pages as clean without checking anything.
 
     Returns (pill_rect, [row_bbox, ...], kind) or None when the page has no pill
-    at all (other layouts are simply not checked here). kind is 'path' for the
-    shipped (outlined) artwork and 'text' when the title is still live -- an .ai
-    is editable, so its title is a text frame and the row boxes are SPAN boxes,
-    which include the font's side bearings and ascent/descent. Those are fine
-    for the block centre but too fat to judge the oval corner by corner.
-    A pill with no rows at all means the probe found nothing to read.
+    at all (other layouts are simply not checked here). kind is 'path' for
+    outlined glyphs and 'text' for live spans -- span boxes carry the font's
+    side bearings and its full ascent/descent, which is good enough for the
+    block centre and too fat to judge the oval corner by corner.
     """
     pill = None
     for dr in page.get_drawings():
@@ -215,10 +215,10 @@ def title_issues(page, pno):
         return []
     pill, rows, kind = got
     if not rows:
-        # The pill is there but nothing inside it looked like a glyph path, so
-        # this page was NOT checked. Reporting it as silence is what let the
-        # whole gate pass vacuously when it was still reading live text.
-        return [('TITLE-UNREAD', pno, 'no glyph paths')]
+        # Neither glyph paths nor live spans inside the pill: this page was NOT
+        # checked. Reporting silence is exactly what let the gate pass vacuously
+        # before, so it has to fail.
+        return [('TITLE-UNREAD', pno, 'no glyphs, no text')]
     out = []
     cx, cy = (pill.x0 + pill.x1) / 2, (pill.y0 + pill.y1) / 2
     a, b = (pill.x1 - pill.x0) / 2, (pill.y1 - pill.y0) / 2

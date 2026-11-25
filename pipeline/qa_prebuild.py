@@ -59,6 +59,8 @@ def body_size(rec):
     if ALLOW_BODY_SZ:
         return (rec or {}).get('sz') or ENG.get('base_size', 18.0)
     return ENG.get('base_size', 18.0)
+
+
 langs = sel[0].split(',') if sel else [l['code'] for l in cfg.langs]
 colors = [c['code'] for c in cfg.colors]
 
