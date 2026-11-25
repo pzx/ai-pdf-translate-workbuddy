@@ -82,6 +82,15 @@ RELAX_DX = float(P.get('relax_shift_pt', 26.0))
 BASE_SIZE = float(P.get('base_size', 18.0))
 LEAD_EXTRA = float(P.get('lead_extra_pt', 1.0))
 
+# The corner page number is NOT a translatable label, so it never enters
+# state[] -- which is why a long word used to grow straight into it: a shipped
+# deck had "accovacciarsi" 4.8pt from the "16" and "cavolo riccio" at 1.1pt,
+# i.e. printing on top of it. It is a hard right-hand obstacle for any label on
+# the same row, not just something below the text.
+LAY = cfg.d.get('layout', {}) or {}
+PN_GAP = float(LAY.get('pageno_gap_pt', IGH))       # keep >= inter-label gap
+PN_SHIFT_CAP = float(LAY.get('pageno_shift_cap_pt', 16.0))
+
 T = load_translations()
 
 # Short forms live in the translation table as "<lang>_short" (that is where the
@@ -743,6 +752,58 @@ def solve_book(lang, color):
                 for x in mem:
                     state[x['en']]['dy'] = round(base[x['en']] + pick, 1)
 
+        # ---- page-number no-go zone (horizontal) -------------------------
+        # Keep every label on the page-number's row at least PN_GAP clear of
+        # it by nudging the text left, capped by PN_SHIFT_CAP and by the room
+        # to the left neighbour. Text stays centred under its own art; only a
+        # few pt ever move, which is invisible on a 470pt card. If a label is
+        # simply too long to clear the number, it is reported (PN-TIGHT) so
+        # the translator shortens the word instead of shipping an overlap.
+        pn = pg.get('pageno')
+        if pn:
+            pB = [min(pn['box'][0], pn['box'][2]),
+                  max(pn['box'][1], pn['box'][3]),
+                  min(pn['box'][1], pn['box'][3])]
+            pL, pTop, pBot = pB
+            _order = sorted(state.items(),
+                            key=lambda kv: kv[1]['cx'])
+            _done = []                      # (right_edge, left_edge) shifted already
+            for en, st in _order:
+                if st.get('mode') == 'manual':
+                    continue
+                lo = [x for x in labels if x['en'] == en]
+                if not lo:
+                    continue
+                lo = lo[0]
+                k = (st.get('sz') or BASE_SIZE) / BASE_SIZE
+                w = line_w(st['val']) * k
+                h = h1_of(lo) + (lead if '\r' in st['val'] else 0.0)
+                top = lo['box'][1] + st['dy'] + float(st.get('rowdy') or 0.0)
+                bot = top - h
+                if not (top > pBot and bot < pTop):     # not on the number's row
+                    continue
+                L, R = st['cx'] - w / 2, st['cx'] + w / 2
+                need = R - (pL - PN_GAP)
+                if need <= 0.2:        # already clear (sub-0.2pt = rounding)
+                    continue
+                room = PN_SHIFT_CAP
+                for (nr, _nl) in _done:                 # left neighbour already moved
+                    if nr <= L + 0.5:
+                        room = min(room, L - (nr + MM))
+                shift = min(need, room)
+                if shift < need - 0.1:
+                    print('PN-TIGHT %s/%s ab%d %r need=%.1f only=%.1f '
+                          '(left neighbour limits the nudge)' % (lang, color, ab, st['val'], need, shift))
+                if shift <= 0.05:
+                    print('PN-TIGHT %s/%s ab%d %r right=%.1f limit=%.1f '
+                          '(too long to clear the page number)'
+                          % (lang, color, ab, st['val'], R, pL - PN_GAP))
+                    continue
+                st['cx'] = round(st['cx'] - shift, 1)
+                st['pnfix'] = 1
+                print('PN-SHIFT %s/%s ab%d %r dx=-%.1f' % (lang, color, ab, st['val'], shift))
+                _done.append((st['cx'] + w / 2, st['cx'] - w / 2))
+
         dec = {}
         for en, st in state.items():
             if os.environ.get('DEBUG_LABEL') == en:
@@ -758,6 +819,8 @@ def solve_book(lang, color):
                 d['posfix'] = 1
             if st.get('sz'):
                 d['sz'] = st['sz']
+            if st.get('pnfix'):
+                d['pnfix'] = 1
             _ill = float(st.get('illdy') or 0.0) + _row
             if abs(_ill) > 0.01:
                 d['illdy'] = round(_ill, 1)

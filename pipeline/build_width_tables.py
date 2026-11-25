@@ -176,11 +176,18 @@ compound = set()
 DECVAL, DVWRAP = {}, {}
 for f in glob.glob(os.path.join(cfg.work, 'v7_dec_*.json')) + \
          glob.glob(os.path.join(cfg.work, '*decision*.json')):
+    # Only real decision files are "v7_dec_<lang>_<color>.json". A tuning file
+    # whose name merely contains "decision" (decision_tuning.json) used to be
+    # parsed as one and crashed the whole step on an IndexError.
+    _base = os.path.basename(f)
+    _parts = _base[:-5].split('_') if _base.endswith('.json') else []
+    if len(_parts) < 4 or _parts[0] != 'v7' or _parts[1] != 'dec':
+        continue
     try:
         dd = json.load(open(f, encoding='utf-8'))
     except Exception:
         continue
-    _lg = os.path.basename(f).split('_')[2] if f.endswith('.json') else ''
+    _lg = _parts[2]
     for recs in (dd.get(cfg.s['entries'], {}) or {}).values():
         for k, rec in (recs or {}).items():
             if '\r' in str(k):

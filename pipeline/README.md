@@ -15,16 +15,22 @@ python init_translations.py --check      # 缺键/多键/空值/软回车/_short
 python preflight.py                      # 体检：内框/插画/标题/译表覆盖（阻断项退 2）
 python build_width_tables.py             # 量字宽 -> work/width_tables.json（正文限宽/折行）
 #   译文或字体改了就要重跑；没有这张表正文长词会冲出卡片
+python build_decisions.py all            # 几何 + 译文 -> 决策 JSON（带 cx/dy/sz）
+python qa_prebuild.py                    # ★出图前体检：字形/字宽/同排/页码/漏译/标题/缩写格
+#   有阻断项退 1。这里改一个词 = 改译表；出图后才发现 = 重出一整本
 python ledger_export.py                  # 决策 JSON -> output/xlsx/<ledger>
 #   人工在 xlsx 审校：浅黄底的 译文/字号/中文
 python ledger_import.py --dry            # 先看差异
 python ledger_import.py                  # 回灌写回决策 JSON（幂等、带备份）
-python rebuild.py it purple              # 只重建改过的一本
+python rebuild.py it:orange              # 只重建改过的一本
 python rebuild.py all                    # 全部（自动跳过未变）
 python verify.py                         # 页数 + text=0 + 文件齐全
 python verify.py --layout                # 附：决策意图静态校验（未定版式/插图相交）
+python qa_output.py                      # ★出图后复核：直接读成品字形坐标，查页码压字/出血/页数
 python letters_export.py                 # 字母对应表（字母页卡片专用）
 ```
+
+**两道闸，缺一不可**：`qa_prebuild` 在出图前把所有能算出来的问题算掉（不调 Illustrator，秒级）；`qa_output` 在出图后不信任何模型，只读成品真实坐标（唯一能抓到"模板自带的页码被我们的长词压住"这类问题的环节）。
 
 ## 换版型 / 新工程的闭环（产生 cx，缺它闸门会拒绝出图）
 
@@ -131,6 +137,8 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 | `ledger_export.py` | 决策 JSON → 台账（总览/每语言一页/全语言对照）；**出表前自动回灌**防丢编辑 |
 | `ledger_import.py` | 台账 → 决策 JSON；按表头名定位列、幂等、写前备份 |
 | `letters_export.py` | 字母对应表 + 特有字母页（A–Z 保留英文时说明词与字母的对应） |
+| `qa_prebuild.py` | **出图前闸门**：字形覆盖 / 字宽超槽 / 同排间距 / 页码禁区 / 漏译 / 标题 / 缩写格；`--detail` 列明细、`--json` 存结果，阻断项退 1 |
+| `qa_output.py` | **出图后复核**：读成品 .ai/.pdf 的真实字形坐标，查页码压字 / 出血 / 页数；完全转曲的 PDF 无文本层则只校验页数 |
 | `rebuild.py` | 指纹增量重建：单本/单语言/全部/`--force`；生成 JSX 后调批处理 |
 | `make_jsx.py` | 决策驱动生成纯 ASCII 的 Illustrator JSX |
 | `verify.py` | 校验 PDF 页数、活字=0（已转曲）、文件齐全；`--layout` 附加决策意图静态检查 |
@@ -155,6 +163,7 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 - **正文限宽**（`layout` + `width_tables.json`）：`build_width_tables.py` 用源稿 spans + 译文 + 真实字体量出每个词的 `MAXW`（可用墨迹宽）与 `SCALE`（字号系数），放不下的先折两行、再按 `min_scale` 缩字号；`make_jsx.py` 注入这两张表并逐词执行。**没有这张表时正文长词会直接冲出卡片**。
 - **墨迹对齐**（`ink_bounds_words`）：开则复制文字→转曲→量真墨迹框（不含字体留白）再定位，比 `visibleBounds` 准但稍慢；默认关以保持速度。标题始终用 inkBounds。
 - **双行行距**：含软回车的框设 `autoLeading=false`、leading=`max(cap×字号+gap, 0.94×字号+1)`——0.94em 是 typo 行高，低于它下行会碰上行；单行沿用 `lead_at_18×(字号/18)`。
+- **页码是右侧禁区，不只是下方障碍**（`layout.pageno_gap_pt` 默认 10.5；`pageno_shift_cap_pt` 默认 16）：角上的页码由模板绘制、不进译表，所以任何「标签对标签」的检查都看不见它。`build_decisions` 现在对**同一行**的每个标签算 `右端 ≤ 页码左端 − pageno_gap`，不够就左移（上限 shift_cap，并避让左邻居），移不动打 `PN-TIGHT` 让人换短词。实测一版卡片 `accovacciarsi` 右端距页码仅 4.8pt、`cavolo riccio` 仅 1.1pt——印出来就是压字。
 - **文本与插画不相交**（`obstacle_gap` + `obstacle_nudge_cap`）：决策 JSON 可在 `"obstacles": {"<画板>": [[x0,y0,x1,y1],...]}` 给插图框（与 visibleBounds 同坐标系，top>y>bottom）。默认 `ocap=0` **只告警不移动**；决策引擎已做过避让就保持 0，手工搭决策才调大让它上移。
 - **按画板取决策**（`boardOf`）：同一英文 key 可能出现在多页（`tree`、`rainbow`），出图时必须先用文字框中心算出它属于哪个画板，只取该画板的 `cx`；否则会拿别页的坐标，把词拖到另一页的插图上。
 
@@ -167,7 +176,11 @@ python rebuild.py all                     # 4) 正常出图（闸门校验 cx �
 - **`\r`↔`\n` 归一化**：xlsx 把软回车存成 `\n`，不归一化会误判「全表都改了」。
 - **字号改回源值自动清覆盖**：`rec.sz` 与源字号差 <0.05 时删除该键。
 - **签名不含脚本**：指纹只算决策文件 + 源稿 + `width_tables.json` 的 size/mtime；改脚本不误触发全量，故意重做加 `--force`。`width_tables.json` 必须计入——折行/短译/槽宽都在里面，漏掉它会出现「改了规则但重建全 SKIP（unchanged）」的假象。
-- **看产物 mtime 判成功**：不信任 PowerShell stdout（非 UTF-8 会乱码）。
+- **不可翻译的模板元素也是版面**：页码、角标、水印不进译表，因此不会被任何词表或标签碰撞检查覆盖。凡是模板画的固定元素，都要单独当障碍物建模——页码已内置，其它角标用决策 JSON 的 `obstacles` 传。
+- **检查必须在出图前**：`rebuild.py` 一次出一整本（几分钟到十几分钟），「先出图再抽检」会把每个可静态计算的缺陷都变成一次全量重出。能算的（字宽、间距、字形覆盖）一律先用 `qa_prebuild.py` 算完再出图，出图后只用 `qa_output.py` 做实物复核。
+- **work 目录别放名字含 `decision` 的其它 JSON**：`build_width_tables.py` 只认 `v7_dec_<lang>_<color>.json`（已按文件名结构过滤并跳过其它文件），但历史版本会把它当决策解析并 IndexError；调优文件建议命名 `posfix.json`。
+- **`rebuild.py` 选择器**：`all` / `<lang>` / `<color>` / `<lang>:<color>` / `<lang>_<color>` / 逗号分隔均可用；旧版按前两个字符切分会把 `it:orange` 静默解析成无效组合后照常退 0。
+- **看产物 mtime 判成功**：不信任批处理控制台的 stdout（非 UTF-8 会乱码）。
 - **语言表的键必须派生，不能手敲**：`init_translations.py --init` 把 `spans` 与 `geom`（复合两行词只存在于几何里）的文本并起来做键，实测从旧表查出 **21 个死键**（`ear/eye/trousers/soup/sushi/swimming pool…` 源稿里根本没有），同时补齐 84 条缺失的中文。`--merge` 拒绝未知键，写错一个字母就被挡住，不会静默变成英文。
 - **三道静默失败守卫**（都由"删掉 work 从零重跑"暴露出来的）：①译表覆盖不足 → `build_decisions.py` 直接 REFUSED（缺词条时 `tr()` 会静默回退英文，PDF 照样过 `verify.py`）；②缺 `spans_all.json` → `make_jsx.py` 退出码 3（旧行为是给所有标题兜底 22pt，绿本 15.8/橙本 14.7 会被放大）；③缺 spans 的 `build_width_tables.py` 给可执行的修复提示而不是 traceback。
 - **joblist 写绝对路径 + 读时 `-Encoding UTF8`**：runner 的 `$root` 是脚本目录（`<skill>/scripts`），相对项会在那里找（永远 MISSING）；PS 5.1 的 `Get-Content` 默认按 ANSI 解码，工程路径含中文时整行变乱码。两处都修过，别回退。

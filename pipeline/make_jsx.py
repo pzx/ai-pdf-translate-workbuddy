@@ -115,6 +115,13 @@ SLOT = WT.get('slot', {})
 SAFE = WT.get('safe', {})
 PERLANG = WT.get('per_lang', {}).get(lang, {})
 
+
+def _words(s):
+    """Word sequence with soft breaks flattened -- used to tell "the table only
+    added a line break" apart from "the table wants a different word"."""
+    return ' '.join(str(s).replace('\r', ' ').split())
+
+
 # apply FINAL (wrapped) translations + record SCALE into decision entries in-memory
 for _ab, _recs in d.get(E, {}).items():
     for _en, _rec in _recs.items():
@@ -123,13 +130,20 @@ for _ab, _recs in d.get(E, {}).items():
             _key = _key.split('\r')[0]
         _pl = PERLANG.get(_key)
         if _pl:
-            # NEVER undo a wrap that build_decisions already solved: the width
-            # table is a second opinion, and its unwrapped text would silently
-            # collapse a correct two-line label back onto one long line
-            # ("camion dei pompieri" grew 177pt wide and ran into its neighbours).
+            # The width table is a second opinion, the decision JSON is the
+            # single source of truth. Two rules:
+            #   1. never undo a wrap the decision already solved;
+            #   2. never replace the decision's WORDING -- a deliberate short
+            #      form ("police station" -> "commissariato") used to be
+            #      silently overwritten by the table's long full form, which
+            #      put the label straight back through the card edge. The table
+            #      may only add a break to the same words.
             _dv = _rec.get(V)
-            if not (isinstance(_dv, str) and '\r' in _dv and '\r' not in str(_pl['val'])):
-                _rec[V] = _pl['val']      # wrapped text, e.g. "macchina\rdella polizia"
+            _pv = _pl.get('val')
+            if not isinstance(_dv, str) or not _dv.strip():
+                _rec[V] = _pv
+            elif isinstance(_pv, str) and _words(_dv) == _words(_pv) and '\r' in _pv:
+                _rec[V] = _pv
             _rec['scale'] = _pl['scale']  # font-size factor
         else:
             _rec.setdefault('scale', 1.0)

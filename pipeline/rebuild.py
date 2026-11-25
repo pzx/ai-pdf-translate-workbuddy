@@ -27,23 +27,42 @@ sel = []
 def add(l, c):
     if l in cfg.L and c in cfg.C and (l, c) not in sel:
         sel.append((l, c))
+
+# Accepted selectors, all equivalent:
+#   all | <lang> | <color> | <lang>:<color> | <lang>_<color> | a,b,c
+# The old parser guessed "<lang><color>" by slicing the first two characters,
+# so "it:orange" quietly resolved to ('it','') and rebuilt nothing while still
+# exiting 0 -- a silent no-op is the worst failure mode for a build step.
 for a in args:
     if a == 'all':
         for l in cfg.langs:
             for c in cfg.colors:
                 add(l['code'], c['code'])
-    elif a in cfg.L:
+        continue
+    if a in cfg.L:
         for c in cfg.colors:
             add(a, c['code'])
-    elif ':' in a or ',' in a or '_' in a:
-        for part in a.replace(':', ',').split(','):
-            l, c = (part.split('_', 1) if '_' in part else (part[:2], part[2:]))
-            add(l, c)
-    elif a in cfg.C:
+        continue
+    if a in cfg.C:
         for l in cfg.langs:
             add(l['code'], a)
-    else:
-        raise SystemExit('unknown target: ' + a)
+        continue
+    got = False
+    for part in [x for x in a.split(',') if x]:
+        if ':' in part:
+            l, c = part.split(':', 1)
+        elif '_' in part:
+            l, c = part.split('_', 1)
+        else:
+            continue          # bare token without a separator: not a target
+        before = len(sel)
+        add(l, c)
+        got = got or len(sel) > before
+    if not got:
+        raise SystemExit('unknown target: %s  (use all | <lang> | <color> | '
+                         '<lang>:<color>)' % a)
+if not sel:
+    raise SystemExit('nothing selected')
 
 man = load_manifest(cfg)
 jsxs, skipped, gen_failed = [], 0, []

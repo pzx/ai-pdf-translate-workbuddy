@@ -70,8 +70,8 @@ options: [照常翻译词条+另出字母对应表(推荐) / 只翻非字母页 
 3. 用 `pipeline/` 脚本跑闭环，而不是直接生成结果：
    `export_spans.py`（源稿抽文本→标题字号/字宽/字母表的唯一来源）→
    `init_translations.py --init`（语言表键从源稿派生，别手敲；`--merge` 回填、`--check` 审计）→
-   `preflight.py`（体检：内框/插画/标题/译表覆盖，阻断项退 2）→ `build_width_tables.py`（量字宽→正文限宽/折行表）→ `ledger_export.py`（出表）→ 人工审校 xlsx →
-   `ledger_import.py`（回灌）→ `rebuild.py`（指纹增量重建）→ `verify.py`（校验）；字母页卡片再跑 `letters_export.py`。
+   `preflight.py`（体检：内框/插画/标题/译表覆盖，阻断项退 2）→ `build_width_tables.py`（量字宽→正文限宽/折行表）→ `build_decisions.py`（产出带 cx 的决策）→ `qa_prebuild.py`（出图前闸门，阻断项退 1）→ `ledger_export.py`（出表）→ 人工审校 xlsx →
+   `ledger_import.py`（回灌）→ `rebuild.py`（指纹增量重建）→ `verify.py` + `qa_output.py`（校验/成品复核）；字母页卡片再跑 `letters_export.py`。
    决策 JSON 是唯一真相源、xlsx 只是视图；只改表不回灌会被指纹判为「没变」而跳过。
    稳定性要点：关文件后等 2 秒、不要分段重启、不关 PDF 兼容层（细节见 batch-pipeline.md 第 6 / 12 节）。
 4. **清空 work/output 重跑（换机、换版型、从零验证）前，先看 batch-pipeline.md 12.11**：非 ASCII 工程路径、
@@ -151,7 +151,7 @@ check_illustrator.py + analyze_file.py
    **换新源稿/换排版后，按 `pipeline/README.md`「换版型闭环」重建决策**：
    `export_geometry.py`（导出几何，门限在 `config.geometry_export` 可调）→
    `build_decisions.py`（几何+译文产出带 `cx` 的决策）→
-   `build_width_tables.py`（量字宽，产出正文限宽/折行表）→ 台账审校回灌 → `rebuild.py`。
+   `build_width_tables.py`（量字宽，产出正文限宽/折行表）→ `qa_prebuild.py`（出图前闸门）→ 台账审校回灌 → `rebuild.py` → `qa_output.py`。
    闸门只挡住不完整数据，不负责生成它；缺 `cx` 时先跑这两个引擎，不要直接出图。
 5. **台账**（轻量版，适合中小批量）：`python scripts/make_translation_xlsx.py src.ai output --lang fr --map fr.json`
    ——xlsx 目录参数传 `output` 即按输入类型自动路由到 `output/ai/`（pdf 源→`output/pdf/`），
@@ -255,7 +255,12 @@ check_illustrator.py + analyze_file.py
   轮廓字/图片内文字如实标"未处理"，不冒充已翻译。字母认知卡的译文首字母可能不再与 A-Z 对应
   （A=apple→A=pomme），需提醒用户如要对应得连插图一起换。
 - **字形覆盖预检**：目标语言特殊字符（œ é à ñ ü…）确认字体有字形，缺则换微软雅黑/思源黑体并告知。
+- **R5 出图前后双闸（通用，pipeline 路线必跑）**：
+  1. `qa_prebuild.py`（出图前，不调 Illustrator）：字形覆盖 / 字宽超槽 / 同排间距 / **页码禁区** / 漏译 / 标题 / 缩写格。它算的全是几何题，秒级返回；在这里改一个词的成本是改译表，出图后才发现就是重出一整本。
+  2. `qa_output.py`（出图后）：**不信任何模型，只读成品 .ai/.pdf 的真实字形坐标**，查页码压字、出血、页数。
+  顺序不能反：`rebuild.py` 一次出一整本（数分钟起），「先出图再肉眼抽检」会把每个可静态计算的缺陷变成一次全量重出。
+- **不可翻译的模板元素也是版面**：页码、角标、水印不进译表，任何「词与词」的碰撞检查都看不见它们，必须单独当障碍物建模。页码已内置为**右侧禁区**（`layout.pageno_gap_pt` 默认 10.5，不够则左移、移不动打 `PN-TIGHT`）；其它固定角标用决策 JSON 的 `obstacles` 传。实测教训：卡片右下角页码被末词压住时，视觉上一个 1.1pt 的"间隙"在代码里叫"没重叠"。
 - **验收清单**：无源语言残留、无重影、无色块、译文居中（中心误差 ≤1pt）、特殊字符正确、
-  转曲 PDF 无字体残留、插图/装饰/页码完好、台账状态如实。
+  转曲 PDF 无字体残留、插图/装饰完好、**页码与任何译文净空 ≥10pt 且未被压字**、台账状态如实。
 - **cv2 读不了中文路径**：用 PIL 或 np.fromfile；OpenCV 是 BGR，hex 颜色要 [::-1]。
 - **批量**：同版式卡片坐标/替换表可复用；50 张量级优先路线 C 的 BATCH_DIR。多配色×多语言的整套交付走 `pipeline/` 闭环（见开头强制流程）。

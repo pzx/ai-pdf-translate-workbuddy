@@ -206,6 +206,9 @@
     "body_shrink": false,
     "min_scale": 0.72,
     "wrap_lift_pt": 11,
-    "wrap_clear_pt": 1.0
+    "wrap_clear_pt": 1.0,
+    "pageno_gap_pt": 10.5,
+    "pageno_shift_cap_pt": 16.0,
+    "clash_gap_pt": 5.669
   }
 }
