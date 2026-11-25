@@ -19,8 +19,13 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 $root = $PSScriptRoot
-$listPath = Join-Path $root $List
-$jsxs = @(Get-Content $listPath | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+# the caller may pass an absolute list path (rebuild.py / export_geometry.py do);
+# Join-Path would mangle it into "<scriptdir>\D:\..." and every job would be MISSING
+if ([System.IO.Path]::IsPathRooted($List)) { $listPath = $List } else { $listPath = Join-Path $root $List }
+# -Encoding UTF8 is REQUIRED: the list is written by python as UTF-8, and PS 5.1
+# defaults to the ANSI codepage. With a non-ASCII project path (e.g. 技能验证) every
+# entry decodes to mojibake and every job reports MISSING.
+$jsxs = @(Get-Content -LiteralPath $listPath -Encoding UTF8 | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
 
 function Say($m) { Write-Host ("[" + (Get-Date -Format "HH:mm:ss") + "] " + $m) }
 
@@ -61,7 +66,7 @@ if ($ai -eq $null) { Say "FATAL: Illustrator cannot start"; exit 1 }
 # ---- 2. Sequential execution ----
 $results = @()
 foreach ($jsx in $jsxs) {
-    $full = Join-Path $root $jsx
+    if ([System.IO.Path]::IsPathRooted($jsx)) { $full = $jsx } else { $full = Join-Path $root $jsx }
     $log  = [System.IO.Path]::ChangeExtension($full, ".log")
     if (-not (Test-Path $full)) { Say ("MISSING " + $jsx); $results += "$jsx MISSING"; continue }
 

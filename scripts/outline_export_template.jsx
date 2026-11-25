@@ -22,16 +22,17 @@ function writeLog() {
     f.close();
 }
 
-/* 解锁全部图层与对象（副本上才做） */
+/* 只解锁 locked，绝不碰 visible / hidden。
+   把源稿隐藏对象改成 visible=true / hidden=false 会带出裁切辅助标记，
+   转曲后呈现为红黑线框（用户明确不允许出现）。也不要遍历全部 pageItems：
+   两万个对象逐个 COM 调用要几分钟，只解锁图层和文本框即可。 */
 function unlockAll(doc) {
     for (var i = 0; i < doc.layers.length; i++) {
-        doc.layers[i].locked = false;
-        doc.layers[i].visible = true;
+        try { doc.layers[i].locked = false; } catch (e) {}
     }
-    var items = doc.pageItems;
-    for (var j = 0; j < items.length; j++) {
-        try { items[j].locked = false; } catch (e) {}
-        try { items[j].hidden = false; } catch (e) {}
+    var tf = doc.textFrames;
+    for (var j = 0; j < tf.length; j++) {
+        try { if (tf[j].locked) tf[j].locked = false; } catch (e) {}
     }
 }
 
